@@ -1,0 +1,77 @@
+// A full conversation: one wake turn, two follow-ups, a filler covering a slow
+// reply, then the engagement window expiring back to idle.
+//
+// The boot here is deliberately compressed to ~2s so you land in a ready state
+// quickly — boot.jsonl is the fixture for the startup animation itself.
+//
+// Chunk boundaries match what llm.reply actually yields: a short opening
+// fragment (14-24 chars, the only thing time-to-first-audio depends on) and the
+// remainder as one utterance. Timings are the measured ones from llm.py:95-99.
+{"t": 0.00, "kind": "stage", "name": "wakeword", "status": "start"}
+{"t": 0.18, "kind": "stage", "name": "wakeword", "status": "done"}
+{"t": 0.19, "kind": "stage", "name": "vad", "status": "done"}
+{"t": 0.60, "kind": "stage", "name": "asr", "status": "done"}
+{"t": 0.64, "kind": "stage", "name": "voiceprint", "status": "done"}
+{"t": 1.20, "kind": "stage", "name": "warm", "status": "done"}
+{"t": 1.90, "kind": "stage", "name": "brain", "status": "done"}
+{"t": 1.98, "kind": "ready", "wakeword": "wren", "threshold": 0.5, "voiceprint": "enrolled", "similarity_threshold": 0.5, "model": "mlx-community/Llama-3.2-3B-Instruct-4bit", "brain_status": "ready (in-process)", "voice": "bf_emma", "tts": "kokoro-82M"}
+{"t": 2.00, "kind": "personality", "prompt": "You are Wren. This is a spoken conversation read aloud, so write only what should be said. Plain British English, one or two short sentences, then stop. No filler (\"you know\", \"I guess\", \"I suppose\", \"well\", \"or something\"), no slang, no markdown or lists. Do not perform a personality or describe your own actions. Say plainly if you do not know.", "temperature": 0.4, "max_sentences": 2, "max_reply_chars": 140, "history_turns": 4}
+{"t": 2.05, "kind": "state", "engaged": false}
+
+// ── Turn one — wake word ──────────────────────────────────────────────────────
+{"t": 4.10, "kind": "hearing", "on": true}
+{"t": 4.32, "kind": "wake"}
+{"t": 4.20, "kind": "level", "rms": 0.21}
+{"t": 4.30, "kind": "level", "rms": 0.44}
+{"t": 4.40, "kind": "level", "rms": 0.62}
+{"t": 4.50, "kind": "level", "rms": 0.38}
+{"t": 4.60, "kind": "level", "rms": 0.55}
+{"t": 4.70, "kind": "level", "rms": 0.71}
+{"t": 4.80, "kind": "level", "rms": 0.49}
+{"t": 4.90, "kind": "level", "rms": 0.63}
+{"t": 5.00, "kind": "level", "rms": 0.34}
+{"t": 5.10, "kind": "level", "rms": 0.18}
+{"t": 5.20, "kind": "level", "rms": 0.07}
+{"t": 5.28, "kind": "hearing", "on": false}
+{"t": 5.40, "kind": "verdict", "accepted": true, "reason": "wake", "score": 0.71, "text": "what's on my calendar today", "ms": 118, "speculated": true}
+{"t": 5.42, "kind": "thinking", "text": "what's on my calendar today"}
+{"t": 6.06, "kind": "speaking", "chunk": "Nothing until four."}
+{"t": 7.28, "kind": "speaking", "chunk": "Then a call with Sam."}
+{"t": 8.72, "kind": "spoke", "first_audio_ms": 644, "synth_ms": 455, "audio_seconds": 2.6, "filler": null, "sentences": ["Nothing until four.", "Then a call with Sam."]}
+{"t": 8.74, "kind": "history", "messages": [{"role": "user", "content": "what's on my calendar today"}, {"role": "assistant", "content": "Nothing until four. Then a call with Sam."}]}
+{"t": 8.76, "kind": "state", "engaged": true, "ends_in": 20.0}
+
+// ── Turn two — follow-up, slow enough that the filler fires ───────────────────
+{"t": 11.40, "kind": "hearing", "on": true}
+{"t": 11.50, "kind": "level", "rms": 0.33}
+{"t": 11.60, "kind": "level", "rms": 0.58}
+{"t": 11.70, "kind": "level", "rms": 0.41}
+{"t": 11.80, "kind": "level", "rms": 0.66}
+{"t": 11.90, "kind": "level", "rms": 0.29}
+{"t": 12.00, "kind": "level", "rms": 0.11}
+{"t": 12.10, "kind": "hearing", "on": false}
+{"t": 12.24, "kind": "verdict", "accepted": true, "reason": "follow-up", "score": 0.69, "text": "can you move it", "ms": 96, "speculated": true}
+{"t": 12.26, "kind": "thinking", "text": "can you move it"}
+{"t": 12.96, "kind": "filler", "text": "Hmm."}
+{"t": 13.55, "kind": "speaking", "chunk": "I can't reach"}
+{"t": 14.40, "kind": "speaking", "chunk": "your calendar yet."}
+{"t": 15.60, "kind": "spoke", "first_audio_ms": 701, "synth_ms": 388, "audio_seconds": 2.1, "filler": "Hmm.", "sentences": ["I can't reach your calendar yet."]}
+{"t": 15.62, "kind": "history", "messages": [{"role": "user", "content": "what's on my calendar today"}, {"role": "assistant", "content": "Nothing until four. Then a call with Sam."}, {"role": "user", "content": "can you move it"}, {"role": "assistant", "content": "I can't reach your calendar yet."}]}
+{"t": 15.64, "kind": "state", "engaged": true, "ends_in": 20.0}
+
+// ── Turn three — follow-up ────────────────────────────────────────────────────
+{"t": 18.20, "kind": "hearing", "on": true}
+{"t": 18.30, "kind": "level", "rms": 0.4}
+{"t": 18.40, "kind": "level", "rms": 0.61}
+{"t": 18.50, "kind": "level", "rms": 0.36}
+{"t": 18.60, "kind": "level", "rms": 0.14}
+{"t": 18.70, "kind": "hearing", "on": false}
+{"t": 18.82, "kind": "verdict", "accepted": true, "reason": "follow-up", "score": 0.74, "text": "what time is it now", "ms": 104, "speculated": true}
+{"t": 18.84, "kind": "thinking", "text": "what time is it now"}
+{"t": 19.50, "kind": "speaking", "chunk": "Just past two."}
+{"t": 20.60, "kind": "spoke", "first_audio_ms": 658, "synth_ms": 210, "audio_seconds": 1.1, "filler": null, "sentences": ["Just past two."]}
+{"t": 20.62, "kind": "history", "messages": [{"role": "user", "content": "what's on my calendar today"}, {"role": "assistant", "content": "Nothing until four. Then a call with Sam."}, {"role": "user", "content": "can you move it"}, {"role": "assistant", "content": "I can't reach your calendar yet."}, {"role": "user", "content": "what time is it now"}, {"role": "assistant", "content": "Just past two."}]}
+{"t": 20.64, "kind": "state", "engaged": true, "ends_in": 20.0}
+
+// ── The window runs out ───────────────────────────────────────────────────────
+{"t": 40.70, "kind": "state", "engaged": false}

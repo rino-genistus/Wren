@@ -1,0 +1,18 @@
+{
+  "name": "wren-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Wren — a presence on your desktop",
+  "main": "main/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "electron .",
+    "boot": "electron . --replay fixtures/boot.jsonl",
+    "stall": "electron . --replay fixtures/boot-stall.jsonl",
+    "session": "electron . --replay fixtures/session.jsonl",
+    "edges": "electron . --replay fixtures/edge-cases.jsonl"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

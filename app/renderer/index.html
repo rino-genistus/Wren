@@ -1,0 +1,47 @@
+<meta charset="utf-8" />
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:" />
+<title>Wren</title>
+<link rel="stylesheet" href="style/fonts.css" />
+<link rel="stylesheet" href="style/tokens.css" />
+<link rel="stylesheet" href="style/breath.css" />
+
+<div class="stage" id="stage" data-phase="boot" data-view="talk">
+  <header class="chrome">
+    <nav class="views">
+      <button class="label view-tab is-active" data-view="talk">Conversation</button>
+      <button class="label view-tab" data-view="mind">Mind</button>
+    </nav>
+  </header>
+
+  <!-- The orb is one element for the life of the window. It starts as the whole
+       screen during boot and settles into the header — it is never replaced, so
+       there is no moment where Wren blinks out and something else takes over. -->
+  <section class="presence">
+    <canvas id="orb"></canvas>
+    <p class="state label" id="state-word">starting</p>
+  </section>
+
+  <main class="surface">
+    <section class="view view-talk is-shown" id="view-talk">
+      <ol class="transcript" id="transcript"></ol>
+    </section>
+
+    <section class="view view-mind" id="view-mind">
+      <div class="mind" id="mind"></div>
+    </section>
+  </main>
+
+  <footer class="telemetry" id="telemetry" data-open="false">
+    <button class="telemetry-bar" id="telemetry-toggle">
+      <span class="label">Telemetry</span>
+      <span class="telemetry-glance label" id="telemetry-glance">—</span>
+      <span class="telemetry-chevron" aria-hidden="true"></span>
+    </button>
+    <div class="telemetry-body" id="telemetry-body"></div>
+  </footer>
+</div>
+
+<div class="dev" id="dev" hidden></div>
+
+<script type="module" src="js/main.js"></script>

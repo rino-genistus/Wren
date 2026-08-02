@@ -1,0 +1,111 @@
+/* The desktop orb.
+ *
+ * The window is a 400x180 transparent rectangle; almost all of it is empty and
+ * clicks pass straight through. Only the orb itself is solid, and only the
+ * bubble borrows space when Wren is speaking.
+ *
+ * The slot is far bigger than the orb looks, on purpose: everything the orb
+ * draws has to fall to zero inside the canvas, because a gradient cut off by the
+ * canvas edge leaves a flat straight line — and on a transparent window that
+ * line is a faint rectangle sitting on your desktop. */
+
+html,
+body {
+  background: transparent;
+  overflow: hidden;
+}
+
+.perch {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  width: 100%;
+  gap: 4px;
+}
+
+/* Whichever edge the orb is snapped to, it sits on that side and the caption
+ * grows inward — never off the screen. */
+.perch[data-edge='left'] {
+  flex-direction: row-reverse;
+  justify-content: flex-end;
+}
+
+.slot {
+  position: relative;
+  flex: 0 0 180px; /* Must match SLOT in main/orb-window.js */
+  height: 180px;
+}
+
+.slot canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* The only part of the window that takes a click. Sized to the orb's visible
+ * body rather than the canvas, which is mostly bloom. */
+.hit {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 74px;
+  height: 74px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+}
+
+.perch.is-dragging .slot {
+  cursor: grabbing;
+}
+
+/* ── Caption ─────────────────────────────────────────────────────────────────
+ * Wren's reply, beside the orb, so you get the answer without opening anything.
+ * Replies are capped at 140 characters upstream, which always fits — the window
+ * never resizes, so the orb never appears to move while a caption arrives. */
+
+.bubble {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-height: 128px;
+  padding: 12px 15px;
+  border-radius: 10px;
+  /* Nearly opaque: this sits over an arbitrary desktop, not over --ink. */
+  background: rgba(25, 27, 34, 0.95);
+  border: 1px solid var(--fainter);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  opacity: 0;
+  transform: translateX(10px) scale(0.97);
+  transform-origin: right center;
+  transition:
+    opacity 320ms var(--ease),
+    transform 320ms var(--ease-out);
+  pointer-events: none;
+}
+
+.perch[data-edge='left'] .bubble {
+  transform: translateX(-10px) scale(0.97);
+  transform-origin: left center;
+}
+
+.perch[data-caption='true'] .bubble {
+  opacity: 1;
+  transform: none;
+}
+
+.bubble-text {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 300;
+  line-height: 1.48;
+  color: var(--said);
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.bubble-text .filler {
+  font-style: italic;
+  color: var(--faint);
+}

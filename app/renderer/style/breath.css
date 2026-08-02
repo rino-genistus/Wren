@@ -1,0 +1,593 @@
+/* The main window. */
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background:
+    radial-gradient(120% 70% at 50% 0%, var(--ink-lift) 0%, rgba(33, 36, 45, 0) 62%),
+    var(--ink);
+}
+
+/* ── Chrome ──────────────────────────────────────────────────────────────────
+ * There is no titlebar. The top strip is a drag region with two labels in it,
+ * and the traffic lights float over the background. */
+
+.chrome {
+  flex: 0 0 auto;
+  height: 46px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 22px 0 96px;
+  -webkit-app-region: drag;
+}
+
+.views {
+  display: flex;
+  gap: 20px;
+  -webkit-app-region: no-drag;
+  opacity: 0;
+  transition: opacity var(--cross) var(--ease);
+  pointer-events: none;
+}
+
+.stage[data-phase='ready'] .views {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.view-tab {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  cursor: default;
+  color: var(--fainter);
+  transition: color 240ms var(--ease);
+}
+
+.view-tab:hover {
+  color: var(--faint);
+}
+
+.view-tab.is-active {
+  color: var(--heard);
+}
+
+/* ── Presence ────────────────────────────────────────────────────────────────
+ * During boot the orb owns the window. On ready it settles upward into a header
+ * of its own, the same object at a smaller size.
+ *
+ * The canvas deliberately overflows its box. Wren is not a panel with a boundary
+ * — her light falls across whatever is beneath her, which is what stops the
+ * transcript and the Mind panels from looking like a separate document bolted on
+ * underneath. */
+
+.presence {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+  height: 64vh;
+  min-height: 260px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    height 1100ms var(--ease-out),
+    min-height 1100ms var(--ease-out);
+}
+
+/* Tall enough to clear the ring. The orb draws its attention ring at 1.62x its
+ * own radius, and at 208px that ring ran straight through the state word. */
+.stage[data-phase='ready'] .presence {
+  height: 244px;
+  min-height: 244px;
+}
+
+.presence canvas {
+  position: absolute;
+  inset: -48px 0 -72px;
+  width: 100%;
+  height: auto;
+  pointer-events: none;
+}
+
+.state {
+  position: absolute;
+  bottom: 16%;
+  margin: 0;
+  color: var(--heard);
+  transition:
+    opacity 320ms var(--ease),
+    transform 320ms var(--ease);
+}
+
+.stage[data-phase='ready'] .state {
+  bottom: 14px;
+  color: var(--faint);
+}
+
+.state.is-fading {
+  opacity: 0;
+  transform: translateY(3px);
+}
+
+/* ── Surface ─────────────────────────────────────────────────────────────────
+ * Holds the two views. Hidden entirely until Wren is ready — there is nothing
+ * to say before then, and an empty transcript under a loading orb reads as a
+ * failure rather than a wait. */
+
+.surface {
+  flex: 1 1 auto;
+  position: relative;
+  min-height: 0;
+  opacity: 0;
+  transition: opacity 700ms var(--ease) 380ms;
+}
+
+.stage[data-phase='ready'] .surface {
+  opacity: 1;
+}
+
+/* Content dissolves into Wren rather than starting below her. A mask, not an
+ * overlaid gradient: the pixels genuinely go, so the orb's bloom shows through
+ * them instead of being painted over. */
+.view {
+  --fade-top: 64px;
+  --fade-bottom: 40px;
+
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  opacity: 0;
+  transform: translateY(6px);
+  pointer-events: none;
+  transition:
+    opacity var(--cross) var(--ease),
+    transform var(--cross) var(--ease);
+
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    #000 var(--fade-top),
+    #000 calc(100% - var(--fade-bottom)),
+    transparent 100%
+  );
+  /* Without this the mask fades the scrollbar along with the content — the mask
+   * is stopped short of it. 10px, from tokens.css. */
+  -webkit-mask-size: calc(100% - 10px) 100%;
+  mask-size: calc(100% - 10px) 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+
+.view.is-shown {
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
+}
+
+/* ── Transcript ──────────────────────────────────────────────────────────────
+ * No bubbles, no avatars, no timestamps. One conversation in one typeface;
+ * Wren's words are lit and yours are dim, and that is the whole distinction. */
+
+/* Top padding matches --fade-top so the first line is never born half-faded. */
+.transcript {
+  list-style: none;
+  margin: 0;
+  padding: 64px 40px 56px var(--rail);
+  max-width: 46rem;
+}
+
+.turn {
+  padding: 14px 0;
+  animation: rise 520ms var(--ease-out) both;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.turn p {
+  margin: 0 0 6px;
+}
+
+.turn .heard {
+  font-size: 20px;
+  font-style: italic;
+  font-weight: 300;
+  line-height: 1.5;
+  color: var(--heard);
+}
+
+.turn .said {
+  font-size: 24px;
+  font-weight: 300;
+  line-height: 1.46;
+  color: var(--said);
+  font-variation-settings: 'opsz' 32;
+}
+
+/* Wren's reply lands sentence by sentence as it is spoken. */
+.said .sentence {
+  opacity: 0;
+  animation: settle 420ms var(--ease-out) both;
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    filter: none;
+  }
+}
+
+/* A rejected utterance. Present, legible, and clearly not part of the
+ * conversation — you need to see what Wren threw away to judge the thresholds,
+ * but it never reads as a turn. */
+.turn.rejected {
+  padding: 8px 0;
+}
+
+.turn.rejected .heard {
+  font-size: 16px;
+  color: var(--faint);
+}
+
+.turn .reason {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--fainter);
+}
+
+.turn.rejected.not-you .reason {
+  color: var(--cool);
+  opacity: 0.85;
+}
+
+.turn .failed {
+  font-family: var(--sans);
+  font-size: 13px;
+  font-style: normal;
+  color: var(--fail);
+}
+
+.turn .waiting {
+  display: inline-block;
+  width: 22px;
+  color: var(--faint);
+  animation: waiting 1.4s steps(4, end) infinite;
+  overflow: hidden;
+  vertical-align: bottom;
+}
+
+@keyframes waiting {
+  from {
+    width: 0;
+  }
+  to {
+    width: 22px;
+  }
+}
+
+.turn .filler {
+  font-style: italic;
+  color: var(--faint);
+}
+
+/* ── Telemetry drawer ────────────────────────────────────────────────────────
+ * Everything the pipeline already measures, folded away until asked for. */
+
+/* The rule fades out at both ends rather than running edge to edge — the same
+ * objection as the seam above, one order of magnitude smaller. */
+.telemetry {
+  flex: 0 0 auto;
+  position: relative;
+  background: var(--ink-lift);
+  opacity: 0;
+  transition: opacity 700ms var(--ease) 480ms;
+}
+
+.telemetry::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    var(--fainter) 14%,
+    var(--fainter) 86%,
+    transparent 100%
+  );
+}
+
+.stage[data-phase='ready'] .telemetry {
+  opacity: 1;
+}
+
+.telemetry-bar {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 20px;
+  background: none;
+  border: 0;
+  cursor: default;
+  text-align: left;
+}
+
+.telemetry-glance {
+  flex: 1 1 auto;
+  color: var(--heard);
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.telemetry-chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1px solid var(--faint);
+  border-bottom: 1px solid var(--faint);
+  transform: rotate(-135deg);
+  transition: transform 300ms var(--ease);
+}
+
+.telemetry[data-open='true'] .telemetry-chevron {
+  transform: rotate(45deg);
+}
+
+.telemetry-body {
+  height: 0;
+  overflow: hidden;
+  transition: height 340ms var(--ease);
+}
+
+.telemetry-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(128px, 1fr));
+  gap: 18px 24px;
+  padding: 4px 20px 22px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.metric .value {
+  font-family: var(--mono);
+  font-size: 17px;
+  color: var(--said);
+  font-variant-numeric: tabular-nums;
+}
+
+.metric .value.dim {
+  color: var(--faint);
+}
+
+.metric .value .unit {
+  font-size: 11px;
+  color: var(--faint);
+  margin-left: 2px;
+}
+
+/* ── Mind ────────────────────────────────────────────────────────────────────
+ * Four panels. Two show something real; two are laid out and waiting. */
+
+.mind {
+  padding: 64px 40px 56px var(--rail);
+  max-width: 46rem;
+  display: flex;
+  flex-direction: column;
+  gap: 34px;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.panel-head .note {
+  font-family: var(--sans);
+  font-size: 11px;
+  color: var(--fainter);
+  letter-spacing: 0.02em;
+  text-transform: none;
+}
+
+.prompt {
+  font-size: 17px;
+  font-weight: 300;
+  line-height: 1.62;
+  color: var(--said);
+  margin: 0;
+  padding: 16px 18px;
+  background: var(--ink-lift);
+  border-radius: 4px;
+  /* A rule that fades at both ends, not a bar with two ends. */
+  background-image:
+    linear-gradient(to bottom, transparent 0, var(--glow-deep) 18%, var(--glow-deep) 82%, transparent 100%),
+    linear-gradient(var(--ink-lift), var(--ink-lift));
+  background-size: 1px 100%, 100% 100%;
+  background-position: 0 0, 0 0;
+  background-repeat: no-repeat;
+}
+
+.levers {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px 22px;
+}
+
+.lever {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lever .value {
+  font-family: var(--mono);
+  font-size: 15px;
+  color: var(--said);
+}
+
+.lever .because {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--faint);
+}
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 16px;
+  background: linear-gradient(
+      to bottom,
+      transparent 0,
+      var(--fainter) 12%,
+      var(--fainter) 88%,
+      transparent 100%
+    )
+    no-repeat;
+  background-size: 1px 100%;
+}
+
+.message {
+  display: flex;
+  gap: 14px;
+  padding: 7px 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.message .who {
+  flex: 0 0 42px;
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--fainter);
+  padding-top: 4px;
+}
+
+.message.user .what {
+  color: var(--heard);
+  font-style: italic;
+}
+
+.message.assistant .what {
+  color: var(--said);
+}
+
+/* Empty states. Deliberate, not broken: they describe the shape of what will go
+ * here rather than apologising for being blank. */
+.empty {
+  padding: 22px 20px;
+  border: 1px dashed var(--fainter);
+  border-radius: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.empty .what {
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.62;
+  color: var(--faint);
+  margin: 0;
+}
+
+.empty .constraint {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--fainter);
+  margin: 0;
+}
+
+.empty .constraint code {
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+/* ── Dev overlay ─────────────────────────────────────────────────────────────
+ * Tuning a 4s breath cycle against a scripted replay means re-running the
+ * script for every tweak. This makes it one keystroke. */
+
+.dev {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 50;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 340px;
+  padding: 12px;
+  background: rgba(8, 7, 6, 0.94);
+  border: 1px solid var(--fainter);
+  border-radius: 6px;
+}
+
+.dev[hidden] {
+  display: none;
+}
+
+.dev button {
+  appearance: none;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  color: var(--heard);
+  background: var(--ink-lift);
+  border: 1px solid var(--fainter);
+  border-radius: 3px;
+  padding: 5px 8px;
+  cursor: default;
+}
+
+.dev button:hover {
+  color: var(--said);
+  border-color: var(--faint);
+}
+
+.dev .dev-title {
+  width: 100%;
+  color: var(--fainter);
+  font-family: var(--sans);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
