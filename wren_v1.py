@@ -286,6 +286,14 @@ def is_addressed(text):
     answer is an LLM classification call once Wren has a brain; this keeps the
     signature it will need.
     """
+    # Opening with the name is the clearest signal there is — that is what a
+    # vocative is for — so it doesn't have to pass the length or phrasing tests.
+    # Without this, "Hey Ren, how's the weather?" only got through because it
+    # happened to end in a question mark, and "hey ren turn the lights off"
+    # would have been dropped. The word boundary is what keeps it safe:
+    # "rendering is slow" does not match.
+    if WAKE_PREFIX.match(text):
+        return True
     words = re.findall(r"[a-z']+", text.lower())
     if len(words) < MIN_GATE_WORDS:
         return False

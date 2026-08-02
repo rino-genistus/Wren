@@ -79,11 +79,21 @@ PHONEMES_PER_SECOND = 18.3
 # duration and a prosodic reset — Kokoro slows into the end of every piece and
 # starts the next one fresh — while the latency it saves grows with the length
 # (~0.19 * duration), so on a short sentence you pay the seam and get almost
-# nothing. At 1.8s the saving is ~335ms, which is worth one seam; below it isn't.
-MIN_SPLIT_SECONDS = 1.8
-# Headroom over the minimum split that keeps the stream fed, since the estimate
-# is made from a character count and the real duration varies around it.
-OPENER_MARGIN = 1.25
+# nothing.
+#
+# 2.8s is where the measurements separate cleanly. Splitting sentences of 3.4s
+# and up cost +0.07 to +0.24s of extra duration; splitting a 2.7s one cost +0.60s
+# at the best of the six available cut points and +0.34s at the worst, because
+# both halves are then short enough that their final lengthening is a large
+# fraction of the whole. Short replies — which is most of them in conversation —
+# are therefore spoken as a single clip with no seam at all.
+MIN_SPLIT_SECONDS = 2.8
+# Headroom over the minimum opening that keeps the stream fed, since the duration
+# is estimated rather than known. Small, and deliberately: a longer opening delays
+# the first sample and measured *worse* on excess duration too — breaking after
+# "I'd say" cost +0.13s where breaking six words later cost +0.23s. Measured
+# margin at 1.05 is still 400ms+ of slack on every reply.
+OPENER_MARGIN = 1.05
 # Don't break after a phoneme this short. Function words — "the" (ðɪ), "or" (ɔː),
 # "a" (ə) — are short and belong to what follows them, so cutting after one
 # strands it: measured, breaking after "the" cost +0.62s of extra duration where

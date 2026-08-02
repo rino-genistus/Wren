@@ -96,7 +96,11 @@ SYSTEM_PROMPT = (
 # "29.99" and "3.5" intact for free, since the boundary can never sit at the edge
 # of the buffer — whatever is left over is flushed when the stream ends.
 SENTENCE_END = re.compile(r"[.!?…]['\")\]]*\s")
-CLAUSE_END = re.compile(r"[,;:]\s")
+# Commas and semicolons only. A colon introduces a list, so breaking there leaves
+# the listener hanging on "four main forces:" for a whole synthesis round-trip —
+# and if the model then stops, as it occasionally does, that dangling colon is the
+# entire reply. A comma is somewhere a speaker would actually pause.
+CLAUSE_END = re.compile(r"[,;]\s")
 
 # Every chunk is a whole sentence where possible, including the first one.
 # Cutting mid-sentence used to happen here, at 14-24 characters, to get audio
@@ -281,6 +285,11 @@ def reply(text):
         # reply's final sentence — it has no trailing whitespace for SENTENCE_END
         # to match — so it needs the budget check just as much as the rest.
         tail = MARKUP.sub("", buffer).strip()
+        # A reply that stops on a colon is a promise it never keeps — the model
+        # occasionally ends on "four main forces:" and says nothing after it.
+        # Closing the sentence is better than reading the dangling punctuation
+        # aloud and trailing off.
+        tail = re.sub(r"\s*[,:;]+$", ".", tail)
         if tail and affordable(tail):
             spoken.append(tail)
             yield tail
