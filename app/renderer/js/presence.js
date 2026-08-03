@@ -35,12 +35,13 @@ export const STAGES = [
 // rather than left looking like a hang.
 const STALL_AFTER = 6000
 
-export function createPresence(orb, { onWord, onCaption, onStall } = {}) {
+export function createPresence(orb, { onWord, onCaption, onStall, onMute } = {}) {
   let engaged = false
   let ready = false
 
   // The load. One ring, one lap: the orb fills as Wren's parts arrive.
   const loaded = new Set()
+  const failed = new Set()
   let stallTimer = null
 
   function clearStall() {
@@ -74,11 +75,16 @@ export function createPresence(orb, { onWord, onCaption, onStall } = {}) {
         // still and the head shimmers instead.
         case 'stage':
           if (record.status === 'done') {
+            failed.delete(record.name)
+            orb.setFailed(failed.size > 0)
             if (loaded.has(record.name)) break
             loaded.add(record.name)
             clearStall()
             orb.setProgress(loaded.size / STAGES.length)
           } else if (record.status === 'start') {
+            // A retry counts as un-failing until it says otherwise.
+            failed.delete(record.name)
+            orb.setFailed(failed.size > 0)
             clearTimeout(stallTimer)
             stallTimer = setTimeout(() => {
               orb.setStalled(true)
@@ -86,15 +92,24 @@ export function createPresence(orb, { onWord, onCaption, onStall } = {}) {
             }, STALL_AFTER)
           } else if (record.status === 'error') {
             clearStall()
+            failed.add(record.name)
+            orb.setFailed(true)
           }
           break
 
         case 'ready':
           ready = true
           clearStall()
-          // Close the lap even if the compressed fixtures skipped stages: the
-          // orb is always fully assembled by the time it settles, never partly.
-          orb.setProgress(1)
+          if (failed.size) {
+            // The load finished with a casualty. Take the ring away rather than
+            // flashing it shut — the lap did not complete, and saying it did
+            // would be the one thing this ring exists not to do.
+            orb.dismissSweep()
+          } else {
+            // Close the lap even if the compressed fixtures skipped stages: the
+            // orb is always fully assembled by the time it settles, never partly.
+            orb.setProgress(1)
+          }
           orb.setState('idle')
           orb.settle()
           break
@@ -102,6 +117,10 @@ export function createPresence(orb, { onWord, onCaption, onStall } = {}) {
         case 'state':
           engaged = Boolean(record.engaged)
           orb.setEngagement(engaged ? (record.ends_in ?? 20) : 0, record.ends_in ?? 20)
+          if (record.muted !== undefined) {
+            orb.setMuted(record.muted)
+            onMute?.(Boolean(record.muted))
+          }
           if (!ready) break
           settle()
           break

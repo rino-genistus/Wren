@@ -7,7 +7,14 @@
 <link rel="stylesheet" href="style/breath.css" />
 
 <div class="stage" id="stage" data-phase="boot" data-view="talk">
+  <!-- Stop is the most-used control in a voice interface and it used to live only
+       in the desktop orb's context menu. Both of these are also on keys (Esc,
+       ⌘M); the labels are here so you can find out that they exist. -->
   <header class="chrome">
+    <div class="controls">
+      <button class="label control" id="control-stop" hidden>Stop</button>
+      <button class="label control" id="control-mute" data-on="false">Mute</button>
+    </div>
     <nav class="views">
       <button class="label view-tab is-active" data-view="talk">Conversation</button>
       <button class="label view-tab" data-view="mind">Mind</button>
@@ -22,12 +29,28 @@
     <p class="state label" id="state-word">starting</p>
   </section>
 
+  <!-- Anything that failed to load. Empty and invisible in the normal case; it
+       sits between Wren and the conversation because a subsystem that didn't
+       come up is a fact about her, not about the transcript. -->
+  <div class="failures" id="failures"></div>
+
   <main class="surface">
     <section class="view view-talk is-shown" id="view-talk">
       <ol class="transcript" id="transcript"></ol>
     </section>
 
+    <!-- The brain heads the Mind view because the panels below are the detail
+         and this is the shape they hang off. A region that is dashed has
+         nothing behind it — that is the honest state of Wren's memory, and it
+         is drawn rather than described. -->
     <section class="view view-mind" id="view-mind">
+      <figure class="brain-figure" id="brain-figure">
+        <div class="brain-stage" id="brain"></div>
+        <figcaption class="brain-legend">
+          Drag to turn it, point at a region to read it. Lit means wired to something real.
+          Dashed means designed, with nothing behind it yet.
+        </figcaption>
+      </figure>
       <div class="mind" id="mind"></div>
     </section>
   </main>

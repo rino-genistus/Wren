@@ -18,9 +18,56 @@
   height: 46px;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: space-between;
   padding: 0 22px 0 96px;
   -webkit-app-region: drag;
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────────
+ * Stop and mute. Same quiet label style as the view tabs — nothing in this
+ * window looks like a button, and these are no exception. Both mirror state
+ * Wren reports rather than state the click implies, so a click that doesn't
+ * reach her doesn't leave the UI claiming something that isn't true. */
+
+.controls {
+  display: flex;
+  gap: 16px;
+  -webkit-app-region: no-drag;
+  opacity: 0;
+  transition: opacity var(--cross) var(--ease);
+  pointer-events: none;
+}
+
+.stage[data-phase='ready'] .controls {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.control {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 4px 0;
+  cursor: default;
+  color: var(--fainter);
+  transition:
+    color 240ms var(--ease),
+    opacity 240ms var(--ease);
+}
+
+.control:hover {
+  color: var(--faint);
+}
+
+.control[hidden] {
+  display: none;
+}
+
+/* Muted is a state you can sit in for a long time without noticing. It stays
+ * lit, and the orb carries the same mark on both surfaces. */
+.control[data-on='true'],
+.control[data-on='true']:hover {
+  color: var(--fail);
 }
 
 .views {
@@ -261,11 +308,129 @@
   opacity: 0.85;
 }
 
-.turn .failed {
+/* ── Failure ─────────────────────────────────────────────────────────────────
+ * The one failure look in the app, used by the boot sequence and the transcript
+ * alike. It borrows the dashed frame from `.empty` on purpose: both are saying
+ * "this is deliberate, not broken chrome" — the difference is that this one
+ * always carries a way out. A failure stated without a remedy is the bug this
+ * replaced. */
+
+.failures {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  padding: 0 40px;
+  z-index: 2;
+}
+
+.failures:empty {
+  display: none;
+}
+
+.failure {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 7px;
+  max-width: 34rem;
+  margin-top: 12px;
+  padding: 16px 18px;
+  border: 1px dashed var(--fainter);
+  border-left: 1px solid var(--fail);
+  border-radius: 4px;
+  animation: rise 520ms var(--ease-out) both;
+}
+
+.failure .what {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 300;
+  line-height: 1.5;
+  color: var(--said);
+}
+
+.failure .means {
+  margin: 0;
   font-family: var(--sans);
-  font-size: 13px;
-  font-style: normal;
-  color: var(--fail);
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--faint);
+}
+
+/* The exception itself. Present because you will eventually need it, quiet
+ * because most of the time the sentence above is the whole answer. */
+.failure .detail {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--fainter);
+  word-break: break-word;
+}
+
+.failure .act {
+  appearance: none;
+  margin-top: 3px;
+  padding: 6px 12px;
+  background: none;
+  color: var(--heard);
+  border: 1px solid var(--fainter);
+  border-radius: 3px;
+  cursor: default;
+  transition:
+    color 200ms var(--ease),
+    border-color 200ms var(--ease);
+}
+
+.failure .act:hover {
+  color: var(--said);
+  border-color: var(--faint);
+}
+
+.failure[data-busy='true'] .act {
+  color: var(--fainter);
+  border-color: var(--fainter);
+  pointer-events: none;
+}
+
+/* Once Wren is up, a subsystem that didn't load is still true but is no longer
+ * the thing you are looking at — and a turn that fails for the same reason will
+ * print the detail again anyway. So it folds down to one line and stops
+ * competing with the conversation for the top of the window. */
+.stage[data-phase='ready'] .failures {
+  padding: 0 var(--rail) 0 var(--rail);
+  align-items: stretch;
+}
+
+.stage[data-phase='ready'] .failure {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 14px;
+  max-width: none;
+  margin-top: 0;
+  padding: 9px 14px;
+  border-style: solid;
+  border-color: transparent;
+  border-left-color: var(--fail);
+}
+
+.stage[data-phase='ready'] .failure .what {
+  flex: 1 1 auto;
+  font-size: 14px;
+  color: var(--faint);
+}
+
+.stage[data-phase='ready'] .failure .means,
+.stage[data-phase='ready'] .failure .detail {
+  display: none;
+}
+
+.stage[data-phase='ready'] .failure .act {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding: 4px 10px;
 }
 
 .turn .waiting {
@@ -393,11 +558,93 @@
   margin-left: 2px;
 }
 
+/* ── Brain ───────────────────────────────────────────────────────────────────
+ * The head of the Mind view. Wren's interior in three dimensions, lit off the
+ * event stream: regions that glow are wired to something real, dashed ones are
+ * not and never light. That is the same thing dashed means on the .empty panels
+ * below.
+ *
+ * Almost all of this surface is drawn in WebGL. The only DOM the scene owns is
+ * the popup, which drei anchors to a point in the model — so it is styled here,
+ * next to everything else, rather than inline in the scene. */
+
+.brain-figure {
+  margin: 0;
+  padding: 64px 40px 0 var(--rail);
+  max-width: 46rem;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.brain-stage {
+  position: relative;
+  width: 100%;
+  height: 380px;
+  /* The canvas is the one place in the app where dragging is the point. */
+  cursor: grab;
+  touch-action: none;
+}
+
+.brain-stage:active {
+  cursor: grabbing;
+}
+
+/* The popup. It sits above and to the right of its anchor so the region it names
+ * is never underneath it, and it is never wide enough to cover the brain. */
+.brain-popup {
+  transform: translate(12px, calc(-100% - 6px));
+  width: 13.5rem;
+  padding: 9px 11px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--ink-lift);
+  border: 1px solid var(--fainter);
+  border-radius: 4px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 45%);
+}
+
+/* Pinned by a click rather than followed by the cursor. A warm edge, the same
+ * one the panel it points at is wearing at that moment. */
+.brain-popup[data-pinned='true'] {
+  border-color: var(--glow-deep);
+}
+
+.brain-popup .brain-what {
+  font-family: var(--sans);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--faint);
+}
+
+/* Said in words as well as drawn, because by the time you have opened the popup
+ * you are asking the question the dashes were answering. */
+.brain-popup .brain-unbuilt {
+  font-family: var(--sans);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--fainter);
+  border-top: 1px dashed var(--fainter);
+  border-bottom: 1px dashed var(--fainter);
+  padding: 4px 0;
+}
+
+.brain-legend {
+  font-family: var(--sans);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--fainter);
+  margin: 0;
+  padding-bottom: 30px;
+  border-bottom: 1px solid var(--fainter);
+}
+
 /* ── Mind ────────────────────────────────────────────────────────────────────
  * Four panels. Two show something real; two are laid out and waiting. */
 
 .mind {
-  padding: 64px 40px 56px var(--rail);
+  padding: 34px 40px 56px var(--rail);
   max-width: 46rem;
   display: flex;
   flex-direction: column;
@@ -408,6 +655,18 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  scroll-margin-top: 24px;
+  border-left: 1px solid transparent;
+  padding-left: 0;
+  transition: border-color 900ms var(--ease), padding-left 420ms var(--ease-out);
+}
+
+/* Clicking a brain region lands here. A brief warm edge rather than a colour
+ * change: you need to find the panel, not be told off by it. */
+.panel[data-lit='true'] {
+  border-left-color: var(--glow-deep);
+  padding-left: 14px;
+  transition: border-color 160ms var(--ease), padding-left 260ms var(--ease-out);
 }
 
 .panel-head {

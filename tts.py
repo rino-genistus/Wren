@@ -106,6 +106,27 @@ MIN_PHONEME_WORD = 4
 # gap that fading each edge to zero would. Equal-power (sqrt) rather than linear,
 # because the two sides are uncorrelated: linear ramps would dip the loudness
 # through the middle of the join and put a hole exactly where the seam is.
+#
+# Keep this short. Tried and reverted: 60ms, plus a "fade trim" that cut back
+# Kokoro's utterance-edge fade before overlapping. The reasoning was sound — the
+# last ~120ms of a clip really does decay 25-30dB, and overlapping the two fades
+# really does make them sum back to level, taking the measured level step from
+# 24dB to 3dB. It sounded worse, and the numbers say why:
+#
+#   overlap   level step   spectral   speech mixed   length vs whole
+#      8ms       24.2dB      1.65x        ~2ms          -0.087s
+#     60ms        3.3dB      1.20x       ~11ms          -0.182s
+#
+# 60ms is most of a syllable. Trimming the fades guarantees both sides of the
+# overlap are live speech, so the join stops being a crossfade and becomes two
+# different phonemes sounding at once — heard as a slurred or doubled word — and
+# it deletes 95ms more real speech per seam than a short one does.
+#
+# The trap was the metric. "Spectral discontinuity" asks whether the join is an
+# abrupt change, and smearing two signals together scores well on that by
+# construction; it cannot distinguish a smooth join from a smeared one. Anything
+# tried here needs a second metric that measures how much of the overlap has
+# both clips audible at once, or it will optimise straight back into this.
 CROSSFADE = 0.008
 
 # Measured sweep on this M2 Pro: 6 threads beat both the default and 10.
@@ -303,11 +324,20 @@ class _Joiner:
 
     A clip that ends with a pause is not held back — there the separation is the
     point, and there is nothing to hide.
+
+    A sentence's pause is written *before the sentence that follows it* rather
+    than after the sentence that earned it. The two sound identical mid-reply,
+    and they differ at the end of one: a reply's last chunk ends a sentence, so
+    writing the pause eagerly appended SENTENCE_PAUSE of silence after Wren's
+    final word and then sat through it — the mic stayed shut for a quarter of a
+    second of nothing, on every single turn. Deferring it means the last pause
+    is simply never written, because nothing follows it.
     """
 
     def __init__(self, stream):
         self.stream = stream
         self.carry = numpy.zeros(0, dtype=numpy.float32)
+        self.pending = 0.0  # A pause owed to the clip that follows, not the one behind
         self.written = 0
 
     def _put(self, samples):
@@ -316,6 +346,10 @@ class _Joiner:
             self.stream.write(samples)
 
     def write(self, speech, pause):
+        if self.pending:
+            self._put(numpy.zeros(int(self.pending * SAMPLE_RATE), dtype=numpy.float32))
+            self.pending = 0.0
+
         if len(self.carry):
             overlap = min(len(self.carry), len(speech))
             # Equal-power, not linear: the two sides are uncorrelated, so linear
@@ -329,15 +363,18 @@ class _Joiner:
 
         if pause > 0:
             self._put(speech)
-            self._put(numpy.zeros(int(pause * SAMPLE_RATE), dtype=numpy.float32))
+            self.pending = pause
             return
         hold = min(int(CROSSFADE * SAMPLE_RATE), len(speech))
         self._put(speech[:len(speech) - hold])
         self.carry = speech[len(speech) - hold:]
 
     def flush(self):
+        # `pending` is deliberately dropped: a pause with nothing after it is
+        # dead air at the end of the turn, not phrasing.
         self._put(self.carry)
         self.carry = self.carry[:0]
+        self.pending = 0.0
 
 
 def _next_filler():

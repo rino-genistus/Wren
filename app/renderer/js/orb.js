@@ -56,6 +56,7 @@ export function createOrb(canvas, options = {}) {
     hot: hex(styles.getPropertyValue('--glow-hot') || '#ebdcff'),
     deep: hex(styles.getPropertyValue('--glow-deep') || '#7b5fb0'),
     cool: hex(styles.getPropertyValue('--cool') || '#6e8fa8'),
+    fail: hex(styles.getPropertyValue('--fail') || '#e0776a'),
   }
 
   const base = {
@@ -101,8 +102,12 @@ export function createOrb(canvas, options = {}) {
   let sweepAlpha = 0
   let sweepAlphaTarget = 1 // Visible from the first frame: Wren starts loading
   let stalled = false
+  let failed = false // A subsystem didn't load; the head stops and goes red
   let closed = false // The lap has completed; flash, then fade out
   let flash = 0
+
+  let muted = false // Mic off upstream — drawn as a bar across the orb
+  let mute = 0 // Chases `muted`, so it slides in rather than appearing
 
   function resize() {
     const rect = canvas.getBoundingClientRect()
@@ -214,6 +219,32 @@ export function createOrb(canvas, options = {}) {
     context.restore()
 
     drawEngagement(cx, cy, radius, core, dt)
+    drawMute(cx, cy, radius, dt)
+  }
+
+  // Muted. Cut out of everything already drawn rather than painted over it, so
+  // the mark reads the same on the main window's background and on whatever
+  // arbitrary desktop the orb is floating above. A slash through a light is the
+  // one "off" symbol nobody has to learn.
+  function drawMute(cx, cy, radius, dt) {
+    mute = approach(mute, muted ? 1 : 0, 0.16, dt)
+    if (mute < 0.01) return
+
+    const reach = radius * 1.5 * mute
+    const angle = -Math.PI / 4
+    const dx = Math.cos(angle) * reach
+    const dy = Math.sin(angle) * reach
+
+    context.save()
+    context.globalCompositeOperation = 'destination-out'
+    context.lineCap = 'round'
+    context.lineWidth = Math.max(2.5, radius * 0.17)
+    context.strokeStyle = rgba([0, 0, 0], mute)
+    context.beginPath()
+    context.moveTo(cx - dx, cy - dy)
+    context.lineTo(cx + dx, cy + dy)
+    context.stroke()
+    context.restore()
   }
 
   // Hearing: rings travelling *inward*, as though the orb were drawing your voice
@@ -311,19 +342,23 @@ export function createOrb(canvas, options = {}) {
 
     // The head. Shimmers while a stage is in flight; slower and deeper when the
     // stage has genuinely stalled, which is the only signal that a first-run
-    // download is running rather than that Wren has hung.
+    // download is running rather than that Wren has hung. When a stage has
+    // actually failed it stops moving altogether and goes red — a head still
+    // breathing over a load that has given up is the animation lying.
     const rate = stalled ? 0.55 : 1.6
     const wobble = stalled ? 0.4 : 0.24
     // Once the lap closes the head stops working and simply fades with the ring.
-    const shimmer = closed ? 1 : 1 - wobble + wobble * Math.sin(time * TAU * rate)
+    const shimmer = closed || failed ? 1 : 1 - wobble + wobble * Math.sin(time * TAU * rate)
     const angle = start + TAU * sweep
     const hx = cx + Math.cos(angle) * r
     const hy = cy + Math.sin(angle) * r
-    const headR = stalled ? 9 : 7
+    const headR = stalled || failed ? 9 : 7
+    const tip = failed ? palette.fail : palette.hot
+    const halo = failed ? palette.fail : core
     const head = context.createRadialGradient(hx, hy, 0, hx, hy, headR)
-    head.addColorStop(0, rgba(palette.hot, 0.95 * shimmer * sweepAlpha))
-    head.addColorStop(0.4, rgba(core, 0.42 * shimmer * sweepAlpha))
-    head.addColorStop(1, rgba(core, 0))
+    head.addColorStop(0, rgba(tip, 0.95 * shimmer * sweepAlpha))
+    head.addColorStop(0.4, rgba(halo, 0.42 * shimmer * sweepAlpha))
+    head.addColorStop(1, rgba(halo, 0))
     context.fillStyle = head
     context.beginPath()
     context.arc(hx, hy, headR, 0, TAU)
@@ -431,11 +466,38 @@ export function createOrb(canvas, options = {}) {
       stalled = Boolean(on)
     },
 
+    /** A subsystem didn't load. The head stops and goes red; the arc holds. */
+    setFailed(on) {
+      failed = Boolean(on)
+      if (failed) stalled = false
+    },
+
+    /**
+     * Take the ring away without the closing flash. Used when the load finishes
+     * with a casualty: the lap genuinely did not complete, and flashing it shut
+     * would claim otherwise.
+     */
+    dismissSweep() {
+      closed = true
+      sweepAlphaTarget = 0
+    },
+
+    /** Mic off upstream. Never set from a click — only from what Wren reports. */
+    setMuted(on) {
+      muted = Boolean(on)
+    },
+
+    get muted() {
+      return muted
+    },
+
     /** Boot finished: one slow, deliberate full breath before settling. */
     settle() {
       phase = 0.25 // Start the exhale from the top, so `ready` reads as a sigh
       stalled = false
-      sweepTarget = 1
+      // Not when something failed: racing the arc to full while it fades out
+      // would claim the lap completed during the one second you can still see it.
+      if (!failed) sweepTarget = 1
       target = { ...profiles.idle, scale: 1.32, glow: 1.2 }
       setTimeout(() => {
         if (state === 'idle') target = { ...profiles.idle }

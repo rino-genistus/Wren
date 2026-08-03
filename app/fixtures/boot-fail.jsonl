@@ -1,0 +1,30 @@
+// A cold start where the brain never answers — the single most likely real
+// failure, since llm.available() only has to find Ollama down or the MLX weights
+// missing. Everything else loads, so Wren still reaches `listening`: she can
+// hear you and know you, she just has nothing to reply with.
+//
+// What this fixture is for: the ring must stop advancing and go red, the panel
+// must say what it costs and offer a retry, and the load must carry on around
+// the casualty rather than hanging. That last part was the bug.
+{"t": 0.00, "kind": "stage", "name": "wakeword", "status": "start"}
+{"t": 0.62, "kind": "stage", "name": "wakeword", "status": "done"}
+{"t": 0.63, "kind": "stage", "name": "vad", "status": "start"}
+{"t": 0.84, "kind": "stage", "name": "vad", "status": "done"}
+{"t": 0.85, "kind": "stage", "name": "asr", "status": "start"}
+{"t": 4.31, "kind": "stage", "name": "asr", "status": "done"}
+{"t": 4.32, "kind": "stage", "name": "voiceprint", "status": "start"}
+{"t": 4.39, "kind": "stage", "name": "voiceprint", "status": "done"}
+{"t": 4.40, "kind": "stage", "name": "warm", "status": "start"}
+{"t": 7.02, "kind": "stage", "name": "warm", "status": "done"}
+{"t": 7.03, "kind": "stage", "name": "brain", "status": "start"}
+{"t": 8.10, "kind": "stage", "name": "brain", "status": "error", "message": "ConnectionRefusedError: [Errno 61] Connection refused — http://localhost:11434"}
+{"t": 8.60, "kind": "ready", "wakeword": "wren", "threshold": 0.5, "voiceprint": "enrolled", "similarity_threshold": 0.5, "model": "llama3.2:1b", "brain_status": "unreachable", "voice": "bf_emma", "tts": "kokoro-82M"}
+{"t": 8.70, "kind": "state", "engaged": false}
+// And a turn that dies for the same reason, so the transcript's own failure
+// panel is exercised in the same run.
+{"t": 11.00, "kind": "hearing", "on": true}
+{"t": 12.40, "kind": "hearing", "on": false}
+{"t": 12.60, "kind": "verdict", "accepted": true, "reason": "addressed", "score": 0.71, "text": "What's the tallest mountain in the world?", "ms": 214}
+{"t": 12.70, "kind": "thinking"}
+{"t": 13.90, "kind": "error", "message": "ConnectionRefusedError: [Errno 61] Connection refused"}
+{"t": 14.00, "kind": "state", "engaged": false}

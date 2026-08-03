@@ -61,6 +61,10 @@ MAX_SENTENCES = 2
 # model's temperament and varies a lot run to run; lower this if it rambles.
 MAX_REPLY_CHARS = 140
 
+# The shortest tail worth speaking when the budget has already been overdrawn.
+# Enough for a closing clause, short enough that it is not a new thought.
+MIN_CLOSE_CHARS = 40
+
 # This is load-bearing, not boilerplate: the output goes straight into a speech
 # synthesiser. A model that emits bullet points or "**bold**" produces audio that
 # reads punctuation aloud.
@@ -231,6 +235,37 @@ def _clause_at(buffer):
             and CLAUSE_END.search(buffer) is not None)
 
 
+def _closed(chunk, room):
+    """As much of `chunk` as fits in `room`, ending on a full stop.
+
+    Used when the budget runs out part-way through a sentence Wren has already
+    started saying. Simply stopping there left a reply hanging on a comma —
+    "...but alligators have a wider," and then silence — which is worse than
+    either finishing or not starting. Cut at a clause instead and close it.
+    """
+    # `room` can arrive at zero or below: the opening chunk is spoken however
+    # long it is, so the budget may already be overdrawn by the time we get
+    # here. Two things follow, and both have bitten. A negative `room` is read
+    # by rfind as an offset from the *end* of the chunk, which quietly returns
+    # nearly all of it — the exact opposite of a budget. And closing the clause
+    # is the whole point of this function, so there has to be room to do it.
+    room = max(room, MIN_CLOSE_CHARS)
+    if len(chunk) <= room:
+        return chunk
+    cut = max(chunk.rfind(", ", 0, room), chunk.rfind("; ", 0, room))
+    if cut <= 0:
+        cut = chunk.rfind(" ", 0, room)
+    if cut <= 0:
+        # One long word and nowhere to break. Cut it rather than fall back to
+        # the first clause of the chunk, which on a comma-free sentence is the
+        # entire sentence — an unbudgeted extra sentence instead of a short one.
+        cut = room
+    closed = chunk[:cut].rstrip(" ,;:")
+    # Not unconditionally, or a cut that lands on an existing sentence end
+    # produces "...possibly fit.." and Kokoro reads the pause twice.
+    return closed if closed.endswith((".", "!", "?", "…")) else closed + "."
+
+
 def sentences(text):
     """Split spoken text into whole sentences, for display.
 
@@ -261,6 +296,20 @@ def reply(text):
         """
         return not spoken or sum(map(len, spoken)) + len(chunk) <= MAX_REPLY_CHARS
 
+    def budgeted(chunk):
+        """The part of `chunk` Wren can afford to say, or nothing.
+
+        Stopping on the budget is fine after a full stop — the reply is already a
+        whole thought. It is not fine part-way through a sentence Wren has
+        started: that left replies hanging on a comma, "...alligators have a
+        wider," and then silence. There, say as much as fits and close it.
+        """
+        if affordable(chunk):
+            return chunk
+        if spoken[-1].endswith((".", "!", "?", "…")):
+            return ""
+        return _closed(chunk, MAX_REPLY_CHARS - sum(map(len, spoken)))
+
     try:
         for token in _stream(messages):
             buffer += token
@@ -271,10 +320,13 @@ def reply(text):
                 buffer = buffer[cut:].lstrip()
                 if not chunk:
                     continue
-                if not affordable(chunk):
+                affordable_chunk = affordable(chunk)
+                chunk = budgeted(chunk)
+                if chunk:
+                    spoken.append(chunk)
+                    yield chunk
+                if not affordable_chunk:
                     return
-                spoken.append(chunk)
-                yield chunk
                 if chunk.endswith((".", "!", "?", "…")):
                     sentences += 1
             if sentences >= MAX_SENTENCES:
@@ -290,7 +342,8 @@ def reply(text):
         # Closing the sentence is better than reading the dangling punctuation
         # aloud and trailing off.
         tail = re.sub(r"\s*[,:;]+$", ".", tail)
-        if tail and affordable(tail):
+        tail = budgeted(tail) if tail else ""
+        if tail:
             spoken.append(tail)
             yield tail
     finally:

@@ -28,16 +28,42 @@ const BUTTONS = [
   ['not you', () => [{ kind: 'verdict', accepted: false, reason: 'not you', score: 0.19, text: 'is the kettle on', ms: 155, speculated: false }]],
   ['gate', () => [{ kind: 'verdict', accepted: false, reason: 'gate', score: 0.68, text: 'I should head off', ms: 121, speculated: true }]],
   ['error', () => [{ kind: 'error', message: 'response failed: connection reset' }]],
+  // Nothing else emits history, and it is the only way to reach the deque — the
+  // Mind's working-memory panel and the brain's hippocampus both hang off it.
+  ['history +1', (state) => [{ kind: 'history', messages: state.nextHistory() }]],
+  ['history clear', (state) => [{ kind: 'history', messages: state.clearHistory() }]],
   ['stage done', (state) => [{ kind: 'stage', name: state.nextStage(), status: 'done' }]],
   ['stage stall', (state) => [{ kind: 'stage', name: state.peekStage(), status: 'start' }]],
+]
+
+// Enough turns to fill the deque twice over, so eviction is reachable.
+const TURNS = [
+  ['what were we saying', 'You were asking about the kettle.'],
+  ['is it raining', 'Lightly, and it should stop by four.'],
+  ['remind me later', 'I can’t yet — nothing here survives a restart.'],
+  ['what time is it', 'Just past nine.'],
+  ['thanks', 'Any time.'],
 ]
 
 export function createDev(root, { stages, inject }) {
   let cursor = 0
   const names = stages.map((stage) => stage.name)
+  let turns = 0
   const state = {
     nextStage: () => names[Math.min(cursor++, names.length - 1)],
     peekStage: () => names[Math.min(cursor, names.length - 1)],
+    // The deque keeps four turns and drops the oldest, so this mirrors it.
+    nextHistory: () => {
+      turns = Math.min(turns + 1, TURNS.length)
+      return TURNS.slice(Math.max(0, turns - 4), turns).flatMap(([user, assistant]) => [
+        { role: 'user', content: user },
+        { role: 'assistant', content: assistant },
+      ])
+    },
+    clearHistory: () => {
+      turns = 0
+      return []
+    },
   }
 
   const title = document.createElement('span')

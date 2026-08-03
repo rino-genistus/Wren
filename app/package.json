@@ -6,13 +6,26 @@
   "main": "main/index.js",
   "type": "commonjs",
   "scripts": {
+    "build": "esbuild renderer/brain/index.jsx --bundle --format=esm --target=chrome128 --jsx=automatic --define:process.env.NODE_ENV=\\\"production\\\" --outfile=renderer/js/brain.js --sourcemap=linked --minify --legal-comments=none",
+    "prestart": "npm run build",
     "start": "electron .",
-    "boot": "electron . --replay fixtures/boot.jsonl",
-    "stall": "electron . --replay fixtures/boot-stall.jsonl",
-    "session": "electron . --replay fixtures/session.jsonl",
-    "edges": "electron . --replay fixtures/edge-cases.jsonl"
+    "manual": "npm start -- --manual",
+    "boot": "npm start -- --replay fixtures/boot.jsonl",
+    "stall": "npm start -- --replay fixtures/boot-stall.jsonl",
+    "fail": "npm start -- --replay fixtures/boot-fail.jsonl",
+    "session": "npm start -- --replay fixtures/session.jsonl",
+    "edges": "npm start -- --replay fixtures/edge-cases.jsonl",
+    "fixtures": "node renderer/brain/fixtures.test.js"
   },
   "devDependencies": {
-    "electron": "^33.2.0"
+    "electron": "^33.2.0",
+    "esbuild": "^0.28.1"
+  },
+  "dependencies": {
+    "@react-three/drei": "^10.7.7",
+    "@react-three/fiber": "^9.7.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "three": "^0.185.1"
   }
 }

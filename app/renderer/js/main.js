@@ -6,15 +6,30 @@ import { createPresence } from './presence.js'
 import { createTranscript } from './transcript.js'
 import { createTelemetry } from './telemetry.js'
 import { createMind } from './mind.js'
+import { createBrain } from './brain.js'
 import { createDev } from './dev.js'
 
 const stage = document.getElementById('stage')
 const word = document.getElementById('state-word')
+const stopButton = document.getElementById('control-stop')
+const muteButton = document.getElementById('control-mute')
+
+const command = (kind, fields = {}) => window.wren.command({ kind, ...fields })
 
 const orb = createOrb(document.getElementById('orb'), { radiusRatio: 0.1 })
-const boot = createBoot({ stage, word })
-const transcript = createTranscript(document.getElementById('transcript'))
+const boot = createBoot({
+  stage,
+  word,
+  failures: document.getElementById('failures'),
+  retry: (name) => command('retry', { stage: name }),
+})
+const transcript = createTranscript(document.getElementById('transcript'), {
+  retry: (text) => command('retry', { text }),
+})
 const mind = createMind(document.getElementById('mind'))
+const brain = createBrain(document.getElementById('brain'), {
+  onSelect: (panel) => mind.focus(panel),
+})
 
 const telemetry = createTelemetry({
   root: document.getElementById('telemetry'),
@@ -28,6 +43,10 @@ const telemetry = createTelemetry({
 // when a stage has stalled, and boot only writes the label for it.
 const presence = createPresence(orb, {
   onStall: (name, on) => boot.onStall(name, on),
+  onMute: (on) => {
+    muteButton.dataset.on = String(on)
+    muteButton.textContent = on ? 'Muted' : 'Mute'
+  },
   onWord: (text) => {
     if (!boot.finished) return
     if (word.textContent === text) return
@@ -51,13 +70,43 @@ for (const tab of document.querySelectorAll('.view-tab')) {
     }
     document.getElementById('view-talk').classList.toggle('is-shown', next === 'talk')
     document.getElementById('view-mind').classList.toggle('is-shown', next === 'mind')
+    // The brain's render loop only runs while you can see it. A second always-on
+    // loop competing with MLX buys nothing and costs latency.
+    brain.setVisible(next === 'mind')
   })
 }
+
+// The window opens on the conversation, so the brain starts stopped. Asking
+// rather than assuming means changing the default view in index.html does not
+// silently leave it frozen.
+brain.setVisible(stage.dataset.view === 'mind')
+
+// ── Controls ───────────────────────────────────────────────────────────────────
+// Stop is only offered while there is something to stop; a permanently visible
+// Stop that does nothing most of the time teaches you to ignore it.
+
+stopButton.addEventListener('click', () => command('stop'))
+muteButton.addEventListener('click', () => command('mute'))
+
+// ⌘⇧M rather than ⌘M: Electron's default macOS menu owns ⌘M for Minimize and the
+// app menu takes the accelerator before the renderer ever sees the key.
+window.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape') {
+    command('stop')
+    return
+  }
+  if (event.key.toLowerCase() === 'm' && event.shiftKey && (event.metaKey || event.ctrlKey)) {
+    event.preventDefault()
+    command('mute')
+  }
+})
 
 // ── Events ─────────────────────────────────────────────────────────────────────
 
 function handle(record) {
   presence.handle(record)
+  brain.handle(record)
+  stopButton.hidden = orb.state !== 'speaking'
 
   switch (record.kind) {
     case 'stage':

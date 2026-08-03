@@ -10,6 +10,8 @@
 // answer as fragments. This is the same reason respond() collects them and
 // prints through llm.sentences instead.
 
+import { failurePanel } from './failure.js'
+
 const SENTENCE_SPLIT = /(?<=[.!?…])\s+/
 
 function sentencesOf(text) {
@@ -20,8 +22,9 @@ function sentencesOf(text) {
     .filter(Boolean)
 }
 
-export function createTranscript(list) {
+export function createTranscript(list, { retry } = {}) {
   let open = null // The turn currently being answered
+  let asked = null // The last thing Wren accepted, so a failed reply can be retried
 
   function nearBottom() {
     const view = list.parentElement
@@ -80,6 +83,7 @@ export function createTranscript(list) {
       turn.append(said)
       add(turn)
 
+      asked = record.text
       open = { turn, said, buffer: '', rendered: 0, filler: null }
     },
 
@@ -131,17 +135,31 @@ export function createTranscript(list) {
       open = null
     },
 
-    /** respond() caught something. The mic loop survived; say so plainly. */
+    /**
+     * respond() caught something. The mic loop survived, so the useful thing to
+     * say is not just what broke but that the question is still answerable —
+     * hence the retry, which re-sends the utterance rather than making you say
+     * it again.
+     */
     fail(message) {
+      const panel = failurePanel({
+        what: 'That one didn’t make it back.',
+        detail: message,
+        action: asked && retry
+          ? { label: 'Ask again', run: () => retry(asked) }
+          : null,
+      })
+
       if (!open) {
         const turn = element('li', 'turn')
-        turn.append(element('p', 'said failed', message))
+        turn.append(panel)
         add(turn)
         return
       }
       open.said.querySelector('.waiting')?.remove()
-      open.said.append(element('span', 'failed', message))
+      open.turn.append(panel)
       open = null
+      if (nearBottom()) scroll()
     },
   }
 }

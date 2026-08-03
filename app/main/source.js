@@ -96,11 +96,17 @@ function createSource(argv, appRoot) {
   const speedFlag = argv.find((argument) => argument.startsWith('--speed='))
   const speed = speedFlag ? Number(speedFlag.split('=')[1]) || 1 : 1
 
-  if (at === -1 || !argv[at + 1]) return new ManualSource()
+  if (at !== -1 && argv[at + 1]) {
+    const given = argv[at + 1]
+    const file = path.isAbsolute(given) ? given : path.join(appRoot, given)
+    return new ReplaySource(file, { speed })
+  }
 
-  const given = argv[at + 1]
-  const file = path.isAbsolute(given) ? given : path.join(appRoot, given)
-  return new ReplaySource(file, { speed })
+  // Nothing to replay and nothing to drive by hand: run the real Wren. The
+  // repo root is one level above `app/`, which is where wren_v1.py lives.
+  if (argv.includes('--manual')) return new ManualSource()
+  const { PythonSource } = require('./python')
+  return new PythonSource(path.join(appRoot, '..'))
 }
 
 module.exports = { createSource, ReplaySource, ManualSource }

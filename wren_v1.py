@@ -1,7 +1,9 @@
 
 import json
+import os
 import queue
 import re
+import signal
 import sys
 import time
 from collections import deque
@@ -15,14 +17,21 @@ from parakeet_mlx.audio import get_logmel
 from openwakeword.model import Model as WakeWordModel
 from openwakeword.vad import VAD
 
+import events
 import llm
 import speaker
 import tts
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+
 SAMPLE_RATE = 16000
 BLOCK_SIZE = 1280 # 80ms — openWakeWord requires 1280-sample int16 frames at 16kHz
 
-WAKEWORD_PATH = "/Users/rino/Downloads/wren.onnx"
+# Prefer the copy inside the repo so Wren is self-contained; fall back to where
+# it was first trained so an existing checkout keeps working.
+WAKEWORD_PATH = os.path.join(HERE, "models", "wren.onnx")
+if not os.path.exists(WAKEWORD_PATH):
+    WAKEWORD_PATH = "/Users/rino/Downloads/wren.onnx"
 WAKEWORD_THRESHOLD = 0.5 # Raise if it false-fires, lower if it misses you
 WAKE_LOOKBACK = 1.0 # A wake word this long before speech onset still counts as addressing us
 WAKE_DEBOUNCE = 1.5 # One "wren" spans several blocks; treat re-fires within this as the same one
@@ -316,12 +325,26 @@ def paint(code, text):
     return f"\033[{code}m{text}\033[0m" if USE_COLOUR else text
 
 
+def emit_state(engaged):
+    """The listening state, for anything watching. No terminal output.
+
+    Separate from `show_state` because mute changes the state without changing
+    anything the terminal has to say about it — and printing IDLE again every
+    time the UI toggles the mic would be noise in the one place that has to stay
+    readable.
+    """
+    remaining = max(0.0, engaged_until - time.monotonic()) if engaged else 0.0
+    events.emit("state", engaged=engaged, ends_in=round(remaining, 2),
+                muted=events.commands.muted)
+
+
 def show_state(engaged):
     """Announce the listening state — the thing you can't otherwise see."""
     if engaged:
         print(paint("1;32", f"\n┌─ ENGAGED · just talk, no wake word · {FOLLOW_UP_WINDOW:.0f}s ─"))
     else:
         print(paint("1;34", '└─ IDLE · say "wren", or ask a question outright ─\n'))
+    emit_state(engaged)
 
 
 def report(verdict, reason, score, text, elapsed_ms, speculated=False):
@@ -338,6 +361,8 @@ def report(verdict, reason, score, text, elapsed_ms, speculated=False):
         mark, colour = "✗", "2"
     speed = f"{'⚡' if speculated else ' '}{elapsed_ms:4.0f}ms"
     print(paint(colour, f"  {mark} {reason:<10} voice {voice} {speed}  {text!r}"))
+    events.emit("verdict", accepted=bool(verdict), reason=reason, score=score,
+                text=text, ms=round(elapsed_ms, 1), speculated=speculated)
 
 
 def narrate(chunks):
@@ -357,23 +382,33 @@ def narrate(chunks):
         # another one starts behind it or the reply ends.
         for sentence in complete[shown:-1]:
             print(paint("36", f"  ♪ {sentence}"))
+            events.emit("speaking", chunk=sentence)
         shown = max(shown, len(complete) - 1)
         yield chunk
     for sentence in llm.sentences(said)[shown:]:
         print(paint("36", f"  ♪ {sentence}"))
+        events.emit("speaking", chunk=sentence)
 
 
 def respond(text):
     """Generate and speak a reply. Runs on the responder thread, never the mic thread."""
     global engaged_until
+    said = []
     try:
-        # No on_filler line: the display is driven by generation and so runs
+        # No on_filler *line*: the display is driven by generation and so runs
         # ahead of the audio, which put "Hmm." *after* the sentence it was meant
         # to precede. It's a thinking noise rather than content, and the timing
-        # line below already records when one was used.
-        stats = tts.speak(narrate(llm.reply(text)))
+        # line below already records when one was used. The event is a different
+        # matter — the UI shows the filler set apart from the reply, so it can
+        # afford to know about it the moment it is spoken.
+        spoken = narrate(llm.reply(text))
+        stats = tts.speak(
+            _collect(spoken, said),
+            on_filler=lambda filler: events.emit("filler", text=filler),
+        )
     except Exception as error:  # A bad reply shouldn't take the whole mic loop down
         print(paint("31", f"  ! response failed: {error}"))
+        events.emit("error", message=f"{type(error).__name__}: {error}")
         return
     finally:
         # Re-arm from the moment the turn passes back to you. Setting this when
@@ -387,6 +422,21 @@ def respond(text):
                          f"synth {stats['synth_ms']:.0f}ms · "
                          f"spoke {stats['audio_seconds']:.1f}s{covered}"))
 
+    # The authoritative version of the reply, regrouped into whole sentences.
+    # Whatever streamed as chunks is replaced by this, so a reply cut for
+    # time-to-first-audio never leaves fragments on the page.
+    events.emit("spoke", sentences=llm.sentences(" ".join(said).strip()),
+                first_audio_ms=stats["first_audio_ms"], synth_ms=stats["synth_ms"],
+                audio_seconds=stats["audio_seconds"], filler=stats["filler"])
+    events.emit("history", messages=list(llm.history))
+
+
+def _collect(chunks, into):
+    """Tee the chunks on their way to the synthesiser, so respond() keeps a copy."""
+    for chunk in chunks:
+        into.append(chunk)
+        yield chunk
+
 
 def handle(text):
     """Hand the accepted utterance off and get straight back to listening.
@@ -396,174 +446,398 @@ def handle(text):
     block queue and splice the overflow onto your next utterance.
     """
     print(paint("1;37", f"  → {text}"))
+    events.emit("thinking", text=text)
     responder.submit(respond, text)
 
 
-wakeword = WakeWordModel(wakeword_models=[WAKEWORD_PATH], inference_framework="onnx")
-vad = VAD()
-asr = parakeet_mlx.from_pretrained(ASR_MODEL)
-voiceprint = speaker.load_voiceprint()
+# ── Loading ───────────────────────────────────────────────────────────────────
+# Six subsystems, each bracketed so that anything watching can see which one is
+# in flight and which have landed. Every stage is also re-runnable on its own,
+# because "try again" is only worth offering if it can retry the part that
+# actually failed rather than restarting Wren.
+#
+# A stage that raises is reported and survived. One missing model file should
+# cost you that capability, not the process: without a brain Wren can still hear
+# you and know you, and saying so is more use than a traceback.
 
-segmenter = Segmenter(wakeword, vad)
+wakeword = None
+vad = None
+asr = None
+voiceprint = None
+segmenter = None
+brain_ok = False
+brain_status = "not loaded"
+
 pool = ThreadPoolExecutor(max_workers=1)
 responder = ThreadPoolExecutor(max_workers=1)
 
-# Warm everything now so the first real turn doesn't pay any cold-start cost. The ASR
-# clip is a realistic duration on purpose — MLX builds its graph per input shape, so
-# warming on a clip much shorter than a real utterance leaves most of the compilation
-# to the first command.
-transcribe(asr, numpy.zeros(SAMPLE_RATE * 3, dtype=numpy.int16))
-tts.warm()
-brain_ok, brain_status = llm.available()
-if brain_ok:
-    # Warm *through the responder*, not here. MLX binds a model to the thread
-    # that loaded it, and the responder thread is the only one that generates —
-    # warming on the main thread would strand the weights where they can't be
-    # used. The executor keeps one worker alive, so it's the same thread later.
-    responder.submit(llm.warm).result()
 engaged_until = 0.0
-engaged = False
-pending = None
-was_hearing = False
-last_wake_seen = segmenter.wake_time
 
-print(f"Wake word   {'wren':<14} threshold {WAKEWORD_THRESHOLD}")
-if voiceprint is None:
-    print(paint("33", "Voice ID    not enrolled    ANY voice will be accepted — "
-                      "run enroll.py to restrict Wren to yours"))
-else:
-    print(f"Voice ID    enrolled       accepts above {speaker.SIMILARITY_THRESHOLD}")
-brain = f"Brain       {llm.MODEL:<14} {brain_status}"
-print(brain if brain_ok else paint("33", brain))
-print(f"Voice       {tts.VOICE:<14} kokoro-82M")
-print("\nEverything Wren hears is shown below, accepted or not.")
-show_state(engaged)
 
-with sd.InputStream(callback=audio_callback, channels=1, samplerate=SAMPLE_RATE,
-                    blocksize=BLOCK_SIZE, dtype="int16"):
-    while True:
-        block = block_queue.get()
+def _load_wakeword():
+    global wakeword
+    wakeword = None
+    with events.loading("wakeword") as stage:
+        wakeword = WakeWordModel(wakeword_models=[WAKEWORD_PATH],
+                                 inference_framework="onnx")
+    return stage
 
-        if tts.speaking:
-            # Don't listen to ourselves — the built-in mic hears the built-in
-            # speakers. Discard partial state so Wren's own voice can't be
-            # spliced onto the front of your next utterance, and clear the wake
-            # detector so it can't be left part-charged by Wren saying "wren".
-            segmenter.reset()
-            wakeword.reset()
-            was_hearing = False
+
+def _load_vad():
+    global vad
+    vad = None
+    with events.loading("vad") as stage:
+        vad = VAD()
+    return stage
+
+
+def _load_asr():
+    global asr
+    asr = None
+    with events.loading("asr") as stage:
+        asr = parakeet_mlx.from_pretrained(ASR_MODEL)
+    return stage
+
+
+def _load_voiceprint():
+    global voiceprint
+    voiceprint = None
+    with events.loading("voiceprint") as stage:
+        voiceprint = speaker.load_voiceprint()
+    return stage
+
+
+def _load_warm():
+    # Warm everything now so the first real turn doesn't pay any cold-start cost. The ASR
+    # clip is a realistic duration on purpose — MLX builds its graph per input shape, so
+    # warming on a clip much shorter than a real utterance leaves most of the compilation
+    # to the first command.
+    with events.loading("warm") as stage:
+        if asr is None:
+            raise RuntimeError("the transcriber didn't load, so there is nothing to warm")
+        transcribe(asr, numpy.zeros(SAMPLE_RATE * 3, dtype=numpy.int16))
+        tts.warm()
+    return stage
+
+
+def _load_brain():
+    global brain_ok, brain_status
+    with events.loading("brain") as stage:
+        brain_ok, brain_status = llm.available()
+        if brain_ok:
+            # Warm *through the responder*, not here. MLX binds a model to the thread
+            # that loaded it, and the responder thread is the only one that generates —
+            # warming on the main thread would strand the weights where they can't be
+            # used. The executor keeps one worker alive, so it's the same thread later.
+            responder.submit(llm.warm).result()
+    if not stage.ok:
+        brain_ok, brain_status = False, "unreachable"
+    return stage
+
+
+LOADERS = {
+    "wakeword": _load_wakeword,
+    "vad": _load_vad,
+    "asr": _load_asr,
+    "voiceprint": _load_voiceprint,
+    "warm": _load_warm,
+    "brain": _load_brain,
+}
+
+# Without these three there is no listening at all: the segmenter is built from
+# the first two and the third is what turns audio into words. The other three
+# each cost you something specific and nothing more.
+ESSENTIAL = ("wakeword", "vad", "asr")
+
+
+failed_stages = set()
+announced = False
+
+
+def load(only=None):
+    """Bring the subsystems up, or just the ones named. Returns what failed."""
+    global segmenter
+    for name, loader in LOADERS.items():
+        if only and name not in only:
             continue
+        stage = loader()
+        if stage.ok:
+            failed_stages.discard(name)
+        else:
+            failed_stages.add(name)
+            # Swallowing the exception must not mean swallowing the news of it.
+            # The terminal used to get a traceback; it still gets the one line
+            # of it that matters.
+            print(paint("31", f"  ! {name} failed: "
+                              f"{type(stage.error).__name__}: {stage.error}"))
+    if wakeword is not None and vad is not None:
+        segmenter = Segmenter(wakeword, vad)
+    return sorted(failed_stages)
 
-        if engaged and time.monotonic() >= engaged_until:
-            engaged = False
-            show_state(engaged)
 
-        emitted = segmenter.push(block)
+def listening_possible():
+    """Whether Wren can hear you at all. The other three stages are luxuries."""
+    return not set(ESSENTIAL) & failed_stages
 
-        if segmenter.recanted:
-            # You paused, we started work on the guess, then you carried on.
-            # Drop it; the utterance will be transcribed again when it truly ends.
-            segmenter.recanted = False
-            pending = None
 
-        # Live feedback, so a silent drop is never ambiguous with never hearing
-        # you at all. These fire the moment they happen, before transcription.
-        if segmenter.wake_time > last_wake_seen:
-            last_wake_seen = segmenter.wake_time
-            print(paint("1;33", "  ◆ wake word"))
-        if segmenter.speech_started and not was_hearing:
-            print(paint("2", "  ● hearing you..."))
-        was_hearing = segmenter.speech_started
+def announce():
+    """The startup banner, unchanged, plus the same facts as one `ready` record.
 
-        if emitted is None:
-            continue
+    Idempotent, because a retry that finally brings the last essential stage up
+    announces from the command thread and `main` would otherwise print it twice.
+    """
+    global announced
+    if announced:
+        return
+    announced = True
+    print(f"Wake word   {'wren':<14} threshold {WAKEWORD_THRESHOLD}")
+    if voiceprint is None:
+        print(paint("33", "Voice ID    not enrolled    ANY voice will be accepted — "
+                          "run enroll.py to restrict Wren to yours"))
+    else:
+        print(f"Voice ID    enrolled       accepts above {speaker.SIMILARITY_THRESHOLD}")
+    brain = f"Brain       {llm.MODEL:<14} {brain_status}"
+    print(brain if brain_ok else paint("33", brain))
+    print(f"Voice       {tts.VOICE:<14} kokoro-82M")
+    print("\nEverything Wren hears is shown below, accepted or not.")
 
-        audio, wake_fired, final = emitted
+    events.emit("ready", wakeword="wren", threshold=WAKEWORD_THRESHOLD,
+                voiceprint="enrolled" if voiceprint is not None else "not enrolled",
+                similarity_threshold=speaker.SIMILARITY_THRESHOLD,
+                model=llm.MODEL, brain_status=brain_status,
+                voice=tts.VOICE, tts="kokoro-82M", failed=sorted(failed_stages))
+    events.emit("personality", prompt=llm.SYSTEM_PROMPT, temperature=llm.TEMPERATURE,
+                max_sentences=llm.MAX_SENTENCES, max_reply_chars=llm.MAX_REPLY_CHARS,
+                history_turns=llm.HISTORY_TURNS)
 
-        # Speaker ID is onnxruntime on the CPU and the ASR is MLX on the GPU, so
-        # running them together costs max(~155ms, ~82ms) instead of their sum.
-        # Both go to the pool rather than the mic thread: while they run we still
-        # have to notice you starting to speak again.
-        if not final:
-            if len(audio) >= min_utterance_samples:
-                # Transcribe here, on this thread, so the remaining silence is
-                # spent waiting rather than working. It has to be this thread:
-                # MLX gives each thread its own stream and refuses to run a
-                # model from one it wasn't loaded on. Blocking the mic loop for
-                # ~120ms is safe — blocks queue up rather than being lost, so a
-                # resumed sentence is still noticed, just fractionally later.
+
+# ── Commands ──────────────────────────────────────────────────────────────────
+# Anything the UI asks for. Mute is a flag the mic loop reads; the rest happen
+# here and now, on the reader thread, because a barge-in that waits for the next
+# 80ms block to be processed is a barge-in you can hear being late.
+
+
+def on_command(record):
+    kind = record.get("kind")
+    if kind == "stop":
+        tts.stop()
+    elif kind == "reset":
+        llm.reset()
+        events.emit("history", messages=[])
+    elif kind == "retry":
+        stage = record.get("stage")
+        if stage in LOADERS:
+            load(only=[stage])
+            # If that was the last thing standing between Wren and listening,
+            # the boot finishes now rather than on the next restart.
+            if not announced and listening_possible():
+                announce()
+        elif record.get("text"):
+            handle(record["text"])
+
+# ── Running ───────────────────────────────────────────────────────────────────
+
+
+def _shutdown(signum, frame):
+    """Electron kills the child with SIGTERM. Leave nothing behind.
+
+    Without this the mic stream stays open and the executors keep the process
+    alive, so quitting the app left a Wren holding the microphone. Raising
+    SystemExit here unwinds through the `with` below, which closes the device.
+    """
+    tts.stop()
+    pool.shutdown(wait=False, cancel_futures=True)
+    responder.shutdown(wait=False, cancel_futures=True)
+    raise SystemExit(0)
+
+
+def main():
+    global engaged_until
+
+    # Both are no-ops unless a parent process opened the descriptors, which is
+    # what keeps `python wren_v1.py` behaving exactly as it always has.
+    events.listen()
+    events.commands.on(on_command)
+    signal.signal(signal.SIGTERM, _shutdown)
+
+    load()
+    if not listening_possible():
+        # Nothing to listen with. Stay up rather than exiting: the failure has
+        # already been reported in full, and a process that has quit cannot be
+        # asked to try again.
+        print(paint("31", "\nWren can't listen — see the failures above."))
+        while not listening_possible():
+            time.sleep(0.2)
+
+    announce()
+
+    engaged = False
+    pending = None
+    was_hearing = False
+    was_muted = False
+    blocks = 0
+    last_wake_seen = segmenter.wake_time
+
+    show_state(engaged)
+
+    with sd.InputStream(callback=audio_callback, channels=1, samplerate=SAMPLE_RATE,
+                        blocksize=BLOCK_SIZE, dtype="int16"):
+        while True:
+            block = block_queue.get()
+
+            # Muted. The stream stays open — closing and reopening the device
+            # costs the better part of a second and can hand back a different
+            # one — but nothing downstream ever sees the audio.
+            if events.commands.muted != was_muted:
+                was_muted = events.commands.muted
+                if was_muted:
+                    segmenter.reset()
+                    wakeword.reset()
+                    was_hearing = False
+                emit_state(engaged)
+            if was_muted:
+                continue
+
+            if tts.speaking:
+                # Don't listen to ourselves — the built-in mic hears the built-in
+                # speakers. Discard partial state so Wren's own voice can't be
+                # spliced onto the front of your next utterance, and clear the wake
+                # detector so it can't be left part-charged by Wren saying "wren".
+                segmenter.reset()
+                wakeword.reset()
+                was_hearing = False
+                continue
+
+            if engaged and time.monotonic() >= engaged_until:
+                engaged = False
+                show_state(engaged)
+
+            # The one signal with no print behind it, because a terminal has no
+            # use for it: how loud you are, ten times a second. It is what makes
+            # the orb move with your voice rather than merely change state.
+            blocks += 1
+            if events.attached() and blocks % 3 == 0:
+                rms = float(numpy.sqrt(numpy.mean(
+                    (block.astype(numpy.float32) / 32768.0) ** 2)))
+                events.emit("level", rms=round(min(1.0, rms * 6.0), 3))
+
+            emitted = segmenter.push(block)
+
+            if segmenter.recanted:
+                # You paused, we started work on the guess, then you carried on.
+                # Drop it; the utterance will be transcribed again when it truly ends.
+                segmenter.recanted = False
+                pending = None
+
+            # Live feedback, so a silent drop is never ambiguous with never hearing
+            # you at all. These fire the moment they happen, before transcription.
+            if segmenter.wake_time > last_wake_seen:
+                last_wake_seen = segmenter.wake_time
+                print(paint("1;33", "  ◆ wake word"))
+                events.emit("wake")
+            if segmenter.speech_started and not was_hearing:
+                print(paint("2", "  ● hearing you..."))
+                events.emit("hearing", on=True)
+            elif was_hearing and not segmenter.speech_started:
+                # No print: the terminal has nothing to say about you stopping,
+                # but the orb has to come back out of `hearing`.
+                events.emit("hearing", on=False)
+            was_hearing = segmenter.speech_started
+
+            if emitted is None:
+                continue
+
+            audio, wake_fired, final = emitted
+
+            # Speaker ID is onnxruntime on the CPU and the ASR is MLX on the GPU, so
+            # running them together costs max(~155ms, ~82ms) instead of their sum.
+            # Both go to the pool rather than the mic thread: while they run we still
+            # have to notice you starting to speak again.
+            if not final:
+                if len(audio) >= min_utterance_samples:
+                    # Transcribe here, on this thread, so the remaining silence is
+                    # spent waiting rather than working. It has to be this thread:
+                    # MLX gives each thread its own stream and refuses to run a
+                    # model from one it wasn't loaded on. Blocking the mic loop for
+                    # ~120ms is safe — blocks queue up rather than being lost, so a
+                    # resumed sentence is still noticed, just fractionally later.
+                    identity = pool.submit(speaker.check, audio, voiceprint)
+                    text = transcribe(asr, audio)
+                    pending = (text, identity)
+                    # Now that there are words, the segmenter can stop guessing at
+                    # how long to wait and read it off the grammar instead.
+                    segmenter.projected = sounds_finished(text)
+                continue
+
+            duration = len(audio) / SAMPLE_RATE
+            started = time.monotonic()
+
+            if len(audio) < min_utterance_samples:
+                report(False, "too short", None, f"{duration:.1f}s", 0)
+                pending = None
+                continue
+
+            if pending is None:
+                # No usable guess — an utterance short enough to end before we ever
+                # speculated, or one we recanted. Speaker ID is onnxruntime on the
+                # CPU and the ASR is MLX on the GPU, so running them together costs
+                # max(~155ms, ~82ms) rather than their sum.
                 identity = pool.submit(speaker.check, audio, voiceprint)
                 text = transcribe(asr, audio)
-                pending = (text, identity)
-                # Now that there are words, the segmenter can stop guessing at
-                # how long to wait and read it off the grammar instead.
-                segmenter.projected = sounds_finished(text)
-            continue
+                speculated = False
+            else:
+                text, identity = pending
+                pending = None
+                speculated = True
 
-        duration = len(audio) / SAMPLE_RATE
-        started = time.monotonic()
+            is_me, score = identity.result()
+            elapsed_ms = (time.monotonic() - started) * 1000
 
-        if len(audio) < min_utterance_samples:
-            report(False, "too short", None, f"{duration:.1f}s", 0)
-            pending = None
-            continue
-
-        if pending is None:
-            # No usable guess — an utterance short enough to end before we ever
-            # speculated, or one we recanted. Speaker ID is onnxruntime on the
-            # CPU and the ASR is MLX on the GPU, so running them together costs
-            # max(~155ms, ~82ms) rather than their sum.
-            identity = pool.submit(speaker.check, audio, voiceprint)
-            text = transcribe(asr, audio)
-            speculated = False
-        else:
-            text, identity = pending
-            pending = None
-            speculated = True
-
-        is_me, score = identity.result()
-        elapsed_ms = (time.monotonic() - started) * 1000
-
-        if not is_me:
-            # Still shows the transcript — you need to see what it rejected to
-            # judge whether the threshold is right.
-            report(False, "not you", score, text, elapsed_ms, speculated)
-            continue
-        if not text:
-            report(False, "no speech", score, "", elapsed_ms, speculated)
-            continue
-
-        if wake_fired:
-            accepted, reason = True, "wake"
-        elif engaged:
-            accepted, reason = True, "follow-up"
-        else:
-            # Judged on the whole utterance, before the name comes off: stripping
-            # first would push a short request under MIN_GATE_WORDS and have the
-            # gate reject something addressed to Wren by name.
-            accepted, reason = is_addressed(text), "gate"
-            log_decision(text, accepted)
-
-        # However the utterance was accepted, the name is not part of the
-        # question. "Hey Ren, how's the weather?" reached the gate rather than the
-        # wake word, so nothing used to strip it and Wren answered the name
-        # instead of the question.
-        if accepted:
-            text = strip_wake_word(text, glued=wake_fired)
+            if not is_me:
+                # Still shows the transcript — you need to see what it rejected to
+                # judge whether the threshold is right.
+                report(False, "not you", score, text, elapsed_ms, speculated)
+                continue
             if not text:
-                # Just the name — you have Wren's attention, so hold the window
-                # open and wait for what you actually wanted to say.
-                report(True, reason, score, "(name only)", elapsed_ms, speculated)
+                report(False, "no speech", score, "", elapsed_ms, speculated)
+                continue
+
+            if wake_fired:
+                accepted, reason = True, "wake"
+            elif engaged:
+                accepted, reason = True, "follow-up"
+            else:
+                # Judged on the whole utterance, before the name comes off: stripping
+                # first would push a short request under MIN_GATE_WORDS and have the
+                # gate reject something addressed to Wren by name.
+                accepted, reason = is_addressed(text), "gate"
+                log_decision(text, accepted)
+
+            # However the utterance was accepted, the name is not part of the
+            # question. "Hey Ren, how's the weather?" reached the gate rather than the
+            # wake word, so nothing used to strip it and Wren answered the name
+            # instead of the question.
+            if accepted:
+                text = strip_wake_word(text, glued=wake_fired)
+                if not text:
+                    # Just the name — you have Wren's attention, so hold the window
+                    # open and wait for what you actually wanted to say.
+                    report(True, reason, score, "(name only)", elapsed_ms, speculated)
+                    engaged_until = time.monotonic() + FOLLOW_UP_WINDOW
+                    if not engaged:
+                        engaged = True
+                        show_state(engaged)
+                    continue
+
+            report(accepted, reason, score, text, elapsed_ms, speculated)
+            if accepted:
+                handle(text)
                 engaged_until = time.monotonic() + FOLLOW_UP_WINDOW
                 if not engaged:
                     engaged = True
                     show_state(engaged)
-                continue
 
-        report(accepted, reason, score, text, elapsed_ms, speculated)
-        if accepted:
-            handle(text)
-            engaged_until = time.monotonic() + FOLLOW_UP_WINDOW
-            if not engaged:
-                engaged = True
-                show_state(engaged)
+
+
+if __name__ == "__main__":
+    main()
