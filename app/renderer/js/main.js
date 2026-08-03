@@ -16,7 +16,11 @@ const muteButton = document.getElementById('control-mute')
 
 const command = (kind, fields = {}) => window.wren.command({ kind, ...fields })
 
-const orb = createOrb(document.getElementById('orb'), { radiusRatio: 0.1 })
+// The ratio is what decides how much of its band the orb fills, and the band is
+// set per view in breath.css. Raised from 0.1 when the two views got their own
+// sizes: on the conversation Wren should be bigger than she used to be, and the
+// band cannot grow to do that on its own without pushing the transcript down.
+const orb = createOrb(document.getElementById('orb'), { radiusRatio: 0.14 })
 const boot = createBoot({
   stage,
   word,
@@ -59,6 +63,26 @@ const presence = createPresence(orb, {
 })
 
 // ── Views ──────────────────────────────────────────────────────────────────────
+//
+// How much of the room Wren takes. On the conversation she has it — she is the
+// thing you are talking to, and she holds her size while you read. On the Mind
+// page the brain is the subject, so she steps back to a small light above it and
+// only comes forward again when there is something to come forward for. Muted
+// she recedes furthest: nothing is going to happen, and the orb should not sit
+// there at full size implying otherwise.
+//
+// The band around her shrinks in CSS at the same time. This is the second half:
+// the band is the page's business, this is Wren's.
+
+const BUSY = new Set(['hearing', 'thinking', 'speaking'])
+
+function refocus() {
+  if (stage.dataset.view !== 'mind') {
+    orb.setFocus(1)
+    return
+  }
+  orb.setFocus(orb.muted ? 0.6 : BUSY.has(orb.state) ? 1 : 0.78)
+}
 
 for (const tab of document.querySelectorAll('.view-tab')) {
   tab.addEventListener('click', () => {
@@ -73,6 +97,7 @@ for (const tab of document.querySelectorAll('.view-tab')) {
     // The brain's render loop only runs while you can see it. A second always-on
     // loop competing with MLX buys nothing and costs latency.
     brain.setVisible(next === 'mind')
+    refocus()
   })
 }
 
@@ -80,6 +105,7 @@ for (const tab of document.querySelectorAll('.view-tab')) {
 // rather than assuming means changing the default view in index.html does not
 // silently leave it frozen.
 brain.setVisible(stage.dataset.view === 'mind')
+refocus()
 
 // ── Controls ───────────────────────────────────────────────────────────────────
 // Stop is only offered while there is something to stop; a permanently visible
@@ -107,6 +133,9 @@ function handle(record) {
   presence.handle(record)
   brain.handle(record)
   stopButton.hidden = orb.state !== 'speaking'
+  // Every record, because any of them can change the state or the mute flag that
+  // this reads. It sets a number; the orb eases toward it on its own clock.
+  refocus()
 
   switch (record.kind) {
     case 'stage':

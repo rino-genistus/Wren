@@ -1,57 +1,85 @@
 # DESIGN.md — Wren 3D Brain
 
-Design brief for the 3D brain visualization. Replaces the 2D sagittal `brain.js`
-render with a rotatable 3D brain, while preserving everything that made the 2D
-version honest and legible.
+Design brief and source of truth for the 3D brain visualization at the head of the
+Mind view. A rotatable brain that assembles into a recognizable whole and explodes
+apart on click, driven by the same event stream as the original 2D brain.
 
 ## What we're building
 
-A rotatable 3D brain at the head of the Mind view. The user can orbit it freely.
-Hovering or clicking a region raises a small popup naming the region and describing
-what it does (anatomically, and what it maps to in Wren). Regions light up in real
-time when their subsystem fires, driven by the same event stream the 2D brain used.
+A translucent 3D brain the user can orbit. **Assembled**, it reads as a recognizable
+whole brain. **Clicking a region explodes it apart** so every region — including the
+deep and the unbuilt ones — becomes individually visible; the user can spin the
+exploded form too. Regions light in real time when their subsystem fires, and hovering
+any region raises a popup naming it and describing what it does (anatomically, and in
+Wren). Lighting, hover, and the honesty treatment all persist in both states.
 
-## Invariants — carry these from the 2D brain, do not drop them
+## Invariants — never drop these
 
 1. **The honesty rule is enforced by the drawing, not a caption.** Two regions
-   (neocortex, cingulate gyrus) are unbuilt. They must be visibly *present* and
-   visibly *empty* — drawn as dashed/hollow wireframe, never lit, using the existing
-   `--fainter` treatment. The ratio "nine lit, two dark" is the picture's whole point.
-   They are still hoverable; their popup states they are not yet built.
-2. **Reuse the event model.** Expose `brain.handle(record)` with the SAME signature as
-   the current 2D brain, so `main.js`'s single call site is unchanged. No new record
-   kinds, no Python changes. Activity sets a region's `emissiveIntensity` and decays,
-   exactly mirroring the current "stage/hold/cool" logic.
-3. **Reuse the color tokens.** Map to the existing `breath.css` variables — do not
-   invent new colors: `--warm` = accepted/active, `--cool` = idle/rejected,
-   `--fail` = error, `--fainter` = unbuilt/dashed.
-4. **Interior stays legible.** In 3D, deep regions (hippocampus, thalamus) and the two
-   dark regions must remain visible. Use a translucent shell so nothing important hides
-   behind cortex.
+   (neocortex, cingulate gyrus) are unbuilt: drawn dashed/hollow with `--fainter`,
+   hoverable (popup says "not yet built"), and they NEVER light — assembled or exploded.
+   The ratio "nine lit, two dark" is the picture's whole point, and the exploded view
+   must make it *more* legible, not less.
+2. **Reuse the event model.** `brain.handle(record)` keeps its exact current signature;
+   `main.js`'s single call site is unchanged. No new record kinds, no Python changes.
+   Regions light identically whether assembled or exploded — only their position differs.
+3. **Reuse the color tokens.** Map to existing `breath.css` variables only — invent no
+   new colors: `--warm` accepted/active, `--cool` idle/rejected, `--fail` error,
+   `--fainter` unbuilt/dashed.
+4. **Interior stays legible.** Deep regions (thalamus, hippocampus) and the two dark
+   regions must be visible. Assembled, the translucent shell shows them through; exploded,
+   they separate out fully.
 
-## Visual direction
+## Geometry — shell + interior regions
 
-**Translucent shell + node accents (hybrid).**
-- The cortex is a semi-transparent glass-like mesh, tinted toward `--cool`, so deep
-  structures read through the surface.
-- Active regions are lit as glowing nodes/volumes, not neon — quiet emissive, restrained.
-- Four pathways connect regions; a travelling highlight runs along the active pathway
-  during a turn, so a turn reads as one traversal rather than ten independent lamps
-  (same intent as the 2D version).
-- Palette stays dark, clinical, and sparse. This is an instrument, not sci-fi stock art.
-  Keep it consistent with `breath.css`. Avoid busy particle fields and rainbow glow.
+Two layers, splitting "looks like a brain" from "lightable per region":
 
-## Two highlight channels (keep them visually distinct)
+- **Outer shell:** one detailed brain-silhouette mesh (glTF at `assets/brain-shell.glb`;
+  scaffold a low-poly fallback + TODO so it renders before the real mesh lands). Its only
+  job is the recognizable silhouette. Rendered translucent, tinted `--cool`. It is
+  **non-interactive** — `raycast={() => null}` so hover/click pass through to the interior
+  regions. It never lights and shows no popup. It fades to near-invisible while exploded.
+  Source options: NIH 3D (3d.nih.gov, many CC0), Sketchfab (CC filter), or Z-Anatomy
+  cortex. Decimate once in Blender to keep it light.
+- **Interior regions:** the lightable/hoverable/dashed meshes, positioned inside the
+  shell at anatomically-plausible spots (thalamus & hippocampus deep/central, auditory
+  & superior temporal lateral, prefrontal forward, cerebellum low-back, brainstem
+  descending, SMA upper). They can stay abstract — seen through frosted cortex when
+  assembled, and they carry all interaction.
 
-- **Hover (user-driven, transient):** a rim/outline highlight on the region under the
-  cursor, plus the popup. Clears on pointer-out.
-- **Activity (event-driven):** emissive glow from `handle(record)`. This is independent
-  of hover — a region can glow from activity while the user hovers a different one.
+## Interaction — assembled <-> exploded
+
+Two states with a spring/lerp transition (~0.6s), duration a named constant.
+
+- **ASSEMBLED (default):** regions in home positions inside the shell — the whole brain.
+  Hover a region -> rim highlight + popup.
+- **EXPLODED:** regions animate outward along explode vectors (spaced so each is
+  individually visible); shell fades to near-invisible so it doesn't occlude. OrbitControls
+  still work — the exploded brain is fully spinnable.
+
+Two-level click drill (resolves the conflict with the existing click-to-panel behavior):
+
+- Click a region **while ASSEMBLED** -> animate to EXPLODED and pin that region's popup.
+- Click a region **while EXPLODED** -> scroll to + flash its Mind panel (the original
+  click-to-panel behavior, moved one level down; exactly one panel lit).
+- Click empty space or press **Escape while EXPLODED** -> animate back to ASSEMBLED;
+  shell fades back in.
+
+Explode vectors: default to each region's centroid direction from brain center, scaled
+by `EXPLODE_DISTANCE` (named constant). Allow a per-region override in the atlas for deep
+regions (thalamus, hippocampus) that need hand-tuning. Animate all regions together.
+
+## Two highlight channels (keep visually distinct, in both states)
+
+- **Hover (user-driven, transient):** rim/outline on the region under the cursor + popup
+  (drei `<Html>`, anchored so it tracks the region in 3D). Clears on pointer-out.
+- **Activity (event-driven):** emissive glow from `handle(record)`, decays on the next
+  `spoke`/`history` event. Independent of hover — a region can glow from activity while
+  the user hovers a different one.
 
 ## Regions & popup copy
 
-Each region's popup shows its name + this description. Store as data in the atlas
-(mirror the existing `brain-atlas.js` "copy as data" pattern).
+Store as data in the atlas (mirror the `brain-atlas.js` "copy as data" pattern).
 
 | Region | Subsystem | Popup description |
 |---|---|---|
@@ -66,34 +94,36 @@ Each region's popup shows its name + this description. Store as data in the atla
 | **Neocortex** | *(unbuilt)* | Long-term memory and knowledge. In Wren: **not yet built.** Drawn dashed; never lights. |
 | **Cingulate gyrus** | *(unbuilt)* | Emotion, motivation, conflict-monitoring. In Wren: mood and opinions. **Not yet built.** Drawn dashed; never lights. |
 
-## Interaction
-
-- **Rotate:** orbit controls (drag to rotate, scroll to zoom, clamp zoom range). Optional
-  slow auto-rotate when idle; stop auto-rotate on user interaction.
-- **Hover:** rim-highlight the region + show popup anchored to it (use drei `<Html>` so the
-  popup tracks the region in 3D). Popup shows region name + description.
-- **Click:** keep the popup pinned and scroll to / flash the matching Mind panel below,
-  preserving the current click-to-panel behavior (exactly one panel lit).
-- **Unbuilt regions** are hoverable and show their "not yet built" popup, but never light.
-
 ## Technical
 
-- **react-three-fiber + drei.** OrbitControls for rotation, `<Html>` for popups,
-  raycasting via per-mesh `onPointerOver`/`onPointerOut`/`onClick` (no manual centre
-  hit-testing — R3F handles it).
-- **Mesh:** a glTF brain with separately-named region meshes. Source: **Z-Anatomy**
-  (open, CC-BY-SA, labeled brain substructures) exported to glTF, or BodyParts3D. Region
-  mesh names must map to the atlas keys above.
+- **react-three-fiber + drei.** OrbitControls for rotation (works in both states);
+  `<Html>` for popups; per-mesh `onPointerOver`/`onPointerOut`/`onClick` (no manual
+  hit-testing). Shell mesh `raycast={() => null}`.
 - **Materials:** each region has its own material; activity animates `emissiveIntensity`
-  toward a target and decays on the next `spoke`/`history` event, mirroring current decay.
-- **Perf:** pause the render loop when the Conversation tab is shown, resume on return
-  (same as the current rAF behavior). Keep draw calls low; the shell is one mesh.
-- **Parity target:** the five existing fixtures replay through `brain.handle(record)`
-  unaltered and light the correct regions. Failed stages stroke `--fail` transiently on
-  prefrontal (a bad turn), not permanently on brainstem (process death arrives separately).
+  toward a target and decays, mirroring the current stage/hold/cool logic.
+- **Perf:** pause the render loop on the Conversation tab, resume on return. Keep draw
+  calls low; the shell is one mesh.
+- **Named constants:** `EXPLODE_DISTANCE`, transition duration, and existing tunables.
+- **Parity target:** the five existing fixtures replay through `handle(record)` unaltered
+  and light the correct regions in BOTH states. Failed stages stroke `--fail` transiently
+  on prefrontal (a bad turn), not permanently on brainstem (process death arrives
+  separately, via `python.js` exit).
+
+## Later — glass finish (do NOT do until motion is nailed)
+
+The target look is luminous glass with the glow coming from *inside* — not the current
+flat grey dome. Deferred on purpose: `transmission` and bloom both cost performance, and
+layering them onto an animation still being tuned makes it hard to tell what's slow.
+Nail the exploded-view motion first, then do a finish pass:
+
+- Shell uses `MeshPhysicalMaterial` with `transmission` (real glass refraction), low
+  roughness, thin-walled — so lit interior regions refract and glow *through* the cortex.
+- A restrained bloom post-process pass so activity glow blooms softly rather than just
+  tinting. Keep it subtle — this is an instrument, not neon.
+- Re-check perf after: transmission + bloom on an animated scene is the expensive combo.
 
 ## Out of scope (do not build)
 
-- Filling the two empty panels with data. The brain draws the *shape* of what's missing
-  and links to those panels; it invents no data.
+- Filling the two empty Mind panels with data. The brain draws the *shape* of what's
+  missing and links to those panels; it invents no data.
 - New record kinds, Python changes, or a second event pipeline.

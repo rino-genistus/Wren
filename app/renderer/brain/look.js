@@ -16,9 +16,9 @@ const TOKENS = {
   deep: '#7b5fb0',
   cool: '#6e8fa8', // idle, rejected, and the tint of the shell
   fail: '#e0776a',
-  faint: '#6e6d80',
-  fainter: '#35364a', // unbuilt
-  ink: '#191b22',
+  faint: '#78778a',
+  fainter: '#45465b', // unbuilt
+  ink: '#25272e', // what the canvas clears to, so bloom has a real backdrop
 }
 
 export function readLook() {

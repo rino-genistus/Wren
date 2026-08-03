@@ -15,6 +15,10 @@
 // material, so hovering either copy hovers the region. Everything else is
 // midline or spans it.
 
+// The middle of the mass, not the middle of the coordinate system. Everything
+// turns around this and explodes away from it.
+export const CENTRE = [-0.04, -0.04, 0]
+
 // ── Placeholder geometry ──────────────────────────────────────────────────────
 //
 // TODO — swap in the real mesh. These are primitives standing in for a glTF
@@ -29,9 +33,13 @@
 // index.html — GLTFLoader fetches, and `default-src 'none'` currently forbids
 // that. The directive is left out until something actually needs it.
 //
-//   blob  — an ellipsoid: radii [x, y, z]
+//   blob  — an ellipsoid: radii [x, y, z]. `folded` bands it like a cerebellum.
 //   arc   — a partial torus: ring radius, tube radius, sweep in radians
-//   stalk — a tapered cylinder
+//   stalk — a turned profile: midbrain, pons, medulla
+//   patch — a piece cut from the cortex itself, in the direction `dir`, `spread`
+//           radians wide across each axis and `thickness` of the radius deep.
+//           Sampled off the same surface the shell is built from, so a cortical
+//           region carries the same gyri and sits in its own hollow.
 
 // One merged mesh. The cerebrum carries its own fissures and gyri — scene.jsx
 // sculpts them rather than assembling lobes out of spheres — with the cerebellum
@@ -41,7 +49,9 @@ export const SHELL = {
     { at: [0, 0.04, 0], radii: [1.02, 0.72, 0.7], shape: 'cerebrum' },
     { at: [-0.68, -0.46, 0], radii: [0.4, 0.24, 0.46], shape: 'cerebellum' },
   ],
-  stem: { at: [-0.2, -0.62, 0], top: 0.14, bottom: 0.09, height: 0.6, tilt: 0.22 },
+  // Narrower than it looks: the profile bulges at the pons, so these are the
+  // waist measurements rather than the widest point.
+  stem: { at: [-0.2, -0.62, 0], top: 0.1, bottom: 0.065, height: 0.6, tilt: 0.22 },
 }
 
 // ── Regions ───────────────────────────────────────────────────────────────────
@@ -55,6 +65,13 @@ export const SHELL = {
 //   stages  — loaders that light it during boot (wren_v1.py's LOADERS).
 //   panel   — which Mind panel a click scrolls to, or null.
 //   what    — the popup body. Anatomy first, then what it is in Wren.
+//   explode — which way it travels when the brain comes apart. Any length; only
+//             the direction is read. Omitted means straight out from CENTRE,
+//             which is right for anything with a side of the head to itself and
+//             wrong for the two regions that sit *on* the centre and have no
+//             direction of their own.
+//   spread  — that distance, multiplied. Big regions need to travel further to
+//             clear their neighbours; small ones would just leave the frame.
 
 export const REGIONS = [
   {
@@ -65,6 +82,11 @@ export const REGIONS = [
     stages: [],
     panel: null,
     at: [-0.02, 0.02, 0],
+    // It is the centre, so it has no outward direction. Down and forward is the
+    // one quadrant nothing else uses, and it puts the gate between the ears it
+    // listens to and the cortex it reports to.
+    explode: [0.55, -0.85, 0],
+    spread: 0.95,
     shape: { kind: 'blob', radii: [0.2, 0.145, 0.2] },
   },
   {
@@ -77,6 +99,10 @@ export const REGIONS = [
     at: [-0.08, -0.26, 0.36],
     turn: [Math.PI / 2, 0.35, 0.25],
     mirror: true,
+    // Straight out would land it on the auditory cortex. Back and down as well,
+    // into the space under the cerebellum.
+    explode: [-0.9, -0.5, 0.5],
+    spread: 1.05,
     shape: { kind: 'arc', radius: 0.3, tube: 0.072, sweep: 2.6 },
     // Four slots along the curve, oldest first. The deque, drawn. Local to the
     // region's own frame, so they follow it to the other hemisphere.
@@ -95,7 +121,11 @@ export const REGIONS = [
     stages: ['warm'],
     panel: null,
     at: [0.14, 0.55, 0],
-    shape: { kind: 'blob', radii: [0.22, 0.17, 0.4] },
+    // Forward as well as up, to leave the top of the arc to the cingulate.
+    explode: [0.75, 0.9, 0],
+    spread: 1.05,
+    // A strip across the top, wider laterally than front-to-back.
+    shape: { kind: 'patch', dir: [0.14, 0.51, 0], spread: [0.52, 0.2], thickness: 0.07 },
   },
   {
     key: 'voiceprint',
@@ -106,7 +136,12 @@ export const REGIONS = [
     panel: null,
     at: [0.06, -0.2, 0.58],
     mirror: true,
-    shape: { kind: 'blob', radii: [0.44, 0.115, 0.14] },
+    // It and the auditory cortex both live on the side of the head and would
+    // come apart into a stack. Splitting them vertically is what keeps the two
+    // halves of hearing — what was said, and who said it — separately readable.
+    explode: [0, 0.3, 1],
+    // The upper bank of the temporal lobe: long front-to-back, narrow.
+    shape: { kind: 'patch', dir: [0.06, -0.24, 0.58], spread: [0.5, 0.14], thickness: 0.07 },
   },
   {
     key: 'auditory',
@@ -117,7 +152,9 @@ export const REGIONS = [
     panel: null,
     at: [0.02, -0.38, 0.54],
     mirror: true,
-    shape: { kind: 'blob', radii: [0.42, 0.105, 0.14] },
+    explode: [0, -0.3, 1],
+    // Just below it, on Heschl's gyrus.
+    shape: { kind: 'patch', dir: [0.02, -0.42, 0.54], spread: [0.46, 0.13], thickness: 0.07 },
   },
   {
     key: 'prefrontal',
@@ -127,7 +164,8 @@ export const REGIONS = [
     stages: ['brain'],
     panel: 'personality',
     at: [0.66, 0.14, 0],
-    shape: { kind: 'blob', radii: [0.33, 0.35, 0.53] },
+    // The frontal pole, wrapping both sides of the midline.
+    shape: { kind: 'patch', dir: [0.66, 0.1, 0], spread: [0.62, 0.5], thickness: 0.09 },
   },
   {
     key: 'brainstem',
@@ -138,7 +176,12 @@ export const REGIONS = [
     panel: null,
     at: [-0.2, -0.62, 0],
     turn: [0, 0, 0.22],
-    shape: { kind: 'stalk', top: 0.11, bottom: 0.07, height: 0.52 },
+    // Straight down. Outward from the centre would send it back into the
+    // cerebellum, which is already going that way. Short, because it starts
+    // low and the bottom of the frame is as close as the top.
+    explode: [0, -1, 0],
+    spread: 0.85,
+    shape: { kind: 'stalk', top: 0.085, bottom: 0.055, height: 0.52 },
   },
   {
     key: 'cerebellum',
@@ -148,7 +191,9 @@ export const REGIONS = [
     stages: ['wakeword', 'vad'],
     panel: null,
     at: [-0.68, -0.46, 0],
-    shape: { kind: 'blob', radii: [0.31, 0.17, 0.36] },
+    // Banded, not smooth. The cerebellum's texture is the fastest way to tell it
+    // apart from everything else once the brain is in pieces.
+    shape: { kind: 'blob', radii: [0.31, 0.17, 0.36], folded: true },
   },
 
   // ── Dashed from here down. Nothing behind either of these. ──────────────────
@@ -161,6 +206,12 @@ export const REGIONS = [
     panel: 'feelings',
     at: [0.0, 0.1, 0],
     turn: [0, 0, -0.15],
+    // The other region with no outward direction of its own. Up and back — but
+    // only a little further than the rest, because up is the expensive
+    // direction: the stage is a wide, short strip, and a wide arc thrown high
+    // is what decides how small everything else has to be drawn to fit.
+    explode: [-0.5, 1, 0],
+    spread: 1.2,
     shape: { kind: 'arc', radius: 0.46, tube: 0.075, sweep: 3.4 },
   },
   {
@@ -171,6 +222,12 @@ export const REGIONS = [
     stages: [],
     panel: 'longterm',
     at: [-0.52, 0.3, 0],
+    // Straight back, and the longest throw of the ten: it is the largest mesh
+    // and it has the cingulate immediately above it. Backwards rather than up,
+    // because the frame is wide and short — the vertical is what runs out
+    // first, and this camera foreshortens the back of the head anyway.
+    explode: [-1, 0.15, 0],
+    spread: 1.45,
     shape: { kind: 'blob', radii: [0.42, 0.36, 0.6] },
   },
 ]

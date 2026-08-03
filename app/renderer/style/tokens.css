@@ -13,9 +13,11 @@
 
 :root {
   /* The room. Deliberately not black: an orb in a void has nothing to light, and
-   * a void has no depth to lose. */
-  --ink: #191b22;
-  --ink-lift: #21242d; /* Panels, telemetry drawer, the desktop caption bubble */
+   * a void has no depth to lose. Lifted a step in L from where it started — the
+   * first room was dark enough that the quiet end of the ramp stopped arriving,
+   * and a hairline nobody can see is not a hairline. */
+  --ink: #25272e;
+  --ink-lift: #2d303a; /* Panels, telemetry drawer, the desktop caption bubble */
 
   /* The light. The orb, and the only saturated colour in the app.
    * `orb.js` reads these four by name — it is the only JS that does. */
@@ -27,11 +29,18 @@
   --fail: #e0776a; /* A reply that didn't happen */
 
   /* Type. Three steps of light, nothing in between.
-   * 14.4:1, 5.1:1 and 3.4:1 against --ink respectively. */
+   * 12.5:1, 4.9:1 and 3.4:1 against --ink respectively.
+   *
+   * The ramp moved with the room rather than staying put, so the steps between
+   * these are the same size they always were. --said did not move: it is already
+   * at the top of the ramp, and it is Wren's own words, which stay the brightest
+   * thing in the room. --fainter moved furthest — at 1.46:1 it was reading as
+   * absent from the screen rather than as absent from Wren, which is the one
+   * thing the dashed treatment cannot afford to say. */
   --said: #eceaf2; /* Wren */
-  --heard: #8b8a98; /* You */
-  --faint: #6e6d80; /* Labels, hairlines */
-  --fainter: #35364a;
+  --heard: #9493a1; /* You */
+  --faint: #78778a; /* Labels, hairlines */
+  --fainter: #45465b;
 
   --serif: 'Newsreader', 'Iowan Old Style', Georgia, serif;
   --sans: 'Instrument Sans', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;

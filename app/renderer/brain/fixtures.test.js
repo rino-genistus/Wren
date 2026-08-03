@@ -12,8 +12,9 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 
-import { REGIONS } from './atlas.js'
+import { CAMERA, CENTRE, REGIONS, SHELL } from './atlas.js'
 import { createLife } from './life.js'
+import { EXPLODE_SCALE, EXPLODE_SHIFT, explodeOffset } from './view.js'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), '../../fixtures')
 
@@ -151,6 +152,150 @@ for (const name of names) {
   }
   assert.equal(life.flare, 0, `${name}: the deque flared during replay`)
   assert.equal(life.filledNow, life.filled, `${name}: the deque is mid-animation after replay`)
+}
+
+// ── The exploded layout ─────────────────────────────────────────────────────
+//
+// The exploded view exists so that every region — the deep ones and the two
+// dark ones especially — becomes individually visible. A region that comes
+// apart into the middle of another one has not done that, and by the time you
+// notice in a screenshot you are guessing at numbers. So it is asserted here:
+// the vectors are plain arithmetic in view.js and this runs in Node.
+
+// A patch is a thin curved tile, and which way it is thin depends on which way
+// it faces — so a sphere around it would claim several times the space it
+// occupies and force the layout to spread further than it needs to. This walks
+// the same window scene.jsx builds the mesh from and takes the real box.
+//
+// The plain ellipsoid stands in for the folded surface; FOLD_HEADROOM covers the
+// gyri, which push out by a few percent of the radius.
+const FOLD_HEADROOM = 1.08
+
+function patchExtent({ dir, spread, thickness }) {
+  const { radii } = SHELL.parts[0]
+  const norm = (v) => {
+    const length = Math.hypot(...v)
+    return v.map((component) => component / length)
+  }
+  const cross = (a, b) => [
+    a[1] * b[2] - a[2] * b[1],
+    a[2] * b[0] - a[0] * b[2],
+    a[0] * b[1] - a[1] * b[0],
+  ]
+
+  const outward = norm(dir)
+  const across = Math.abs(outward[1]) > 0.9 ? [1, 0, 0] : [0, 1, 0]
+  const right = norm(cross(across, outward))
+  const up = norm(cross(outward, right))
+
+  const lo = [Infinity, Infinity, Infinity]
+  const hi = [-Infinity, -Infinity, -Infinity]
+  const steps = 12
+  for (let row = 0; row <= steps; row += 1) {
+    for (let column = 0; column <= steps; column += 1) {
+      const u = Math.sin(((column / steps) * 2 - 1) * spread[0])
+      const v = Math.sin(((row / steps) * 2 - 1) * spread[1])
+      const point = norm(outward.map((component, axis) => component + right[axis] * u + up[axis] * v))
+      for (let axis = 0; axis < 3; axis += 1) {
+        const value = point[axis] * radii[axis] * FOLD_HEADROOM
+        lo[axis] = Math.min(lo[axis], value * (1 - thickness))
+        hi[axis] = Math.max(hi[axis], value)
+      }
+    }
+  }
+  // Centred on the region's own anchor, so it slots into the symmetric box test
+  // the other shapes use. Grown to cover, never to fit.
+  return [0, 1, 2].map((axis) => (hi[axis] - lo[axis]) / 2)
+}
+
+/** Half-extents, per axis, of a region's placeholder mesh. */
+function extent(shape) {
+  if (shape.kind === 'blob') return shape.radii
+  if (shape.kind === 'arc') {
+    const reach = shape.radius + shape.tube
+    return [reach, reach, shape.tube]
+  }
+  if (shape.kind === 'patch') return patchExtent(shape)
+  // The turned stem, at its widest — which is the pons, not either end.
+  const waist = Math.max(shape.top, shape.bottom) * 1.5
+  return [waist, shape.height / 2, waist]
+}
+
+/** Every copy of every region, where it ends up once the brain is apart. */
+const placed = []
+for (const region of REGIONS) {
+  const offset = explodeOffset(region)
+  const length = Math.hypot(offset[0], offset[1], offset[2])
+  // A region with no direction never leaves the middle, and everything else
+  // comes apart around it. This is the assertion that catches the two regions
+  // sitting on the centre if their override is ever dropped.
+  assert.ok(Number.isFinite(length), `${region.key}: explode vector is not a number`)
+  assert.ok(length > 0.2, `${region.key}: barely moves when the brain comes apart (${length.toFixed(3)})`)
+
+  for (const side of region.mirror ? [1, -1] : [1]) {
+    placed.push({
+      key: region.key,
+      shape: region.shape,
+      at: [
+        region.at[0] + offset[0],
+        region.at[1] + offset[1],
+        (region.at[2] + offset[2]) * side,
+      ],
+    })
+  }
+}
+
+// Visibly apart, not merely not-intersecting.
+const GAP = 0.12
+
+for (let i = 0; i < placed.length; i += 1) {
+  for (let j = i + 1; j < placed.length; j += 1) {
+    const a = placed[i]
+    const b = placed[j]
+    if (a.key === b.key) {
+      // The two copies of a paired structure. They only have to clear each
+      // other across the midline.
+      assert.ok(
+        Math.abs(a.at[2] - b.at[2]) > 2 * extent(a.shape)[2] + GAP,
+        `${a.key}: its two copies overlap on the midline`,
+      )
+      continue
+    }
+
+    // Boxes for the blobs and the stem, spheres for the two arcs — an arc is
+    // rotated into place and its axis-aligned box would claim space it does not
+    // occupy, which would fail regions that are genuinely clear.
+    const round = a.shape.kind === 'arc' || b.shape.kind === 'arc'
+    const ea = extent(a.shape)
+    const eb = extent(b.shape)
+    const apart = round
+      ? Math.hypot(a.at[0] - b.at[0], a.at[1] - b.at[1], a.at[2] - b.at[2]) >
+        Math.max(...ea) + Math.max(...eb) + GAP
+      : [0, 1, 2].some((axis) => Math.abs(a.at[axis] - b.at[axis]) > ea[axis] + eb[axis] + GAP)
+
+    assert.ok(apart, `exploded: ${a.key} and ${b.key} overlap`)
+  }
+}
+
+// And it all has to still be in the frame. Spacing regions apart and pushing one
+// off the top of the canvas is the same failure wearing a different face — and
+// the fix for an overlap is usually to throw something further, so the two
+// pressures pull against each other and both need to be written down.
+const distance = Math.hypot(
+  CAMERA.position[0] - CENTRE[0],
+  CAMERA.position[1] - CENTRE[1],
+  CAMERA.position[2] - CENTRE[2],
+)
+// Only the vertical. `fov` is the vertical half-angle, and the brain stage is a
+// fixed 470px tall across the full width of the Mind view — so the horizontal is
+// always the generous axis and the height is what runs out. Worst case, which is
+// a region straight above or below the centre rather than the far corner.
+const reach = distance * Math.tan(((CAMERA.fov / 2) * Math.PI) / 180)
+
+for (const part of placed) {
+  const bound = Math.max(...extent(part.shape))
+  const far = Math.abs(EXPLODE_SCALE * part.at[1] + EXPLODE_SHIFT[1] - CENTRE[1]) + EXPLODE_SCALE * bound
+  assert.ok(far < reach, `exploded: ${part.key} leaves the top or bottom of the frame (${far.toFixed(2)} of ${reach.toFixed(2)})`)
 }
 
 // ── Report ──────────────────────────────────────────────────────────────────

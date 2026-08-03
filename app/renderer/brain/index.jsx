@@ -15,32 +15,17 @@ import { useState, useSyncExternalStore } from 'react'
 import { createRoot } from 'react-dom/client'
 import { Canvas } from '@react-three/fiber'
 
-import { Brain, pickDeepest } from './scene.jsx'
+import { Brain, pickRegion } from './scene.jsx'
 import { CAMERA } from './atlas.js'
 import { createLife } from './life.js'
 import { readLook } from './look.js'
+import { createSwitch, createView } from './view.js'
 
-/** The smallest thing that can tell React the tab changed without a race: a
- *  setter that exists from the first line, whether or not React has mounted. */
-function createSwitch(initial) {
-  let value = initial
-  const listeners = new Set()
-  return {
-    get: () => value,
-    set(next) {
-      if (next === value) return
-      value = next
-      for (const listener of listeners) listener()
-    },
-    subscribe(listener) {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-  }
-}
-
-function Mount({ life, look, onSelect, shown }) {
+function Mount({ life, look, view, onSelect, shown }) {
   const visible = useSyncExternalStore(shown.subscribe, shown.get)
+  // The boolean only. The animation between the two states is read off `view`
+  // inside the frame loop and never re-renders anything.
+  const exploded = useSyncExternalStore(view.subscribe, view.get)
   const [pinned, setPinned] = useState(null)
 
   // It drifts until you touch it, and then it is yours. Not just on drag: a
@@ -61,13 +46,25 @@ function Mount({ life, look, onSelect, shown }) {
       frameloop={visible ? 'always' : 'never'}
       camera={CAMERA}
       dpr={[1, 2]}
-      gl={{ antialias: true, alpha: true, powerPreference: 'low-power' }}
-      raycaster={{ filter: pickDeepest }}
-      onPointerMissed={() => setPinned(null)}
+      // Opaque, clearing to the room colour — a bloom pass over a transparent
+      // canvas is the one place this scene could go wrong for free. Nothing is
+      // lost by it only as long as the page behind is flat --ink; see the
+      // background colour in scene.jsx.
+      gl={{ antialias: true, alpha: false, powerPreference: 'low-power' }}
+      raycaster={{ filter: (hits) => pickRegion(hits, exploded) }}
+      // Clicking past everything puts it back together. The one way out, since
+      // Escape belongs to Stop and a control that stops Wren speaking should not
+      // have to share a key with a drawing.
+      onPointerMissed={() => {
+        setPinned(null)
+        view.set(false)
+      }}
     >
       <Brain
         life={life}
         look={look}
+        view={view}
+        exploded={exploded}
         onSelect={onSelect}
         pinned={pinned}
         setPinned={setPinned}
@@ -89,8 +86,9 @@ export function createBrain(container, { onSelect } = {}) {
   })
 
   const shown = createSwitch(false)
+  const view = createView()
   const root = createRoot(container)
-  root.render(<Mount life={life} look={look} onSelect={onSelect} shown={shown} />)
+  root.render(<Mount life={life} look={look} view={view} onSelect={onSelect} shown={shown} />)
 
   return {
     handle(record) {
@@ -98,8 +96,15 @@ export function createBrain(container, { onSelect } = {}) {
     },
 
     setVisible(next) {
-      if (next) life.resume()
-      else life.pause()
+      // Leaving the tab does not put the brain back together — you come back to
+      // what you left. It only lands there rather than animating a transition
+      // that was interrupted by looking away.
+      if (next) {
+        life.resume()
+        view.snap()
+      } else {
+        life.pause()
+      }
       shown.set(next)
     },
 

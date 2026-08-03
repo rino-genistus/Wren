@@ -106,8 +106,15 @@ export function createOrb(canvas, options = {}) {
   let closed = false // The lap has completed; flash, then fade out
   let flash = 0
 
-  let muted = false // Mic off upstream — drawn as a bar across the orb
+  let muted = false // Mic off upstream — the orb changes colour rather than dimming
   let mute = 0 // Chases `muted`, so it slides in rather than appearing
+
+  // How much of the room Wren is taking up. 1 is hers; below that she has
+  // stepped back so something else can have the attention. Separate from
+  // `scale`, which is what her state is doing — the two multiply, so she can be
+  // small and still visibly swell when you speak to her.
+  let focus = 1
+  let focusNow = 1
 
   function resize() {
     const rect = canvas.getBoundingClientRect()
@@ -137,6 +144,8 @@ export function createOrb(canvas, options = {}) {
     now.period = approach(now.period, target.period, 0.35, dt)
     now.depth = approach(now.depth, target.depth, 0.3, dt)
     now.tint = approach(now.tint, tintTarget, 0.18, dt)
+    mute = approach(mute, muted ? 1 : 0, 0.16, dt)
+    focusNow = approach(focusNow, focus, 0.3, dt)
     level = approach(level, levelTarget, 0.09, dt)
 
     phase += dt / now.period
@@ -154,14 +163,29 @@ export function createOrb(canvas, options = {}) {
 
     // Breathing, plus whatever the mic is hearing on top of it.
     const swell = 1 + breath * now.depth + level * 0.14
-    const radius = r0 * now.scale * swell
+    const radius = r0 * now.scale * swell * focusNow
     const glow = now.glow * (1 + breath * now.depth * 0.9)
 
     // Warmth shifts the core between lavender and its highlight; energy is
     // reserved for the breath rate. Both are neutral until a mood signal exists.
     const warm = mix(palette.glow, palette.hot, mood.warmth * 0.35)
-    const core = mix(warm, palette.cool, now.tint)
-    const deep = mix(palette.deep, palette.cool, now.tint)
+    let core = mix(warm, palette.cool, now.tint)
+    let deep = mix(palette.deep, palette.cool, now.tint)
+
+    // Muted. A colour the orb is never otherwise, rather than a mark laid over
+    // it: everything the orb does — breath, ripples, ring — keeps happening, in
+    // the wrong colour. `--fail` because that is already what muted means on the
+    // header button, and the orb should not invent a second vocabulary for it.
+    // The deep stop lags the core so the bloom keeps some of its own body and
+    // the whole thing doesn't flatten into one flat red disc.
+    if (mute > 0.001) {
+      core = mix(core, palette.fail, mute)
+      deep = mix(deep, palette.fail, mute * 0.75)
+    }
+
+    // The highlight comes along, or the centre stays lavender and reads as the
+    // orb sitting behind a red filter rather than being that colour.
+    const hot = mute > 0.001 ? mix(palette.hot, palette.fail, mute * 0.6) : palette.hot
 
     context.save()
     context.globalCompositeOperation = 'lighter'
@@ -188,8 +212,8 @@ export function createOrb(canvas, options = {}) {
       cx - radius * 0.14, cy - radius * 0.18, radius * 0.04,
       cx, cy, radius * 1.3,
     )
-    body.addColorStop(0, rgba(mix(core, palette.hot, 0.75), Math.min(1, 1.35 * glow)))
-    body.addColorStop(0.2, rgba(mix(core, palette.hot, 0.3), Math.min(1, 1.15 * glow)))
+    body.addColorStop(0, rgba(mix(core, hot, 0.75), Math.min(1, 1.35 * glow)))
+    body.addColorStop(0.2, rgba(mix(core, hot, 0.3), Math.min(1, 1.15 * glow)))
     body.addColorStop(0.52, rgba(core, 0.8 * glow))
     body.addColorStop(0.8, rgba(deep, 0.24 * glow))
     body.addColorStop(1, rgba(deep, 0))
@@ -205,8 +229,8 @@ export function createOrb(canvas, options = {}) {
     const sx = cx - radius * 0.2
     const sy = cy - radius * 0.26
     const specular = context.createRadialGradient(sx, sy, 0, sx, sy, spec)
-    specular.addColorStop(0, rgba(palette.hot, Math.min(1, 0.66 * glow)))
-    specular.addColorStop(1, rgba(palette.hot, 0))
+    specular.addColorStop(0, rgba(hot, Math.min(1, 0.66 * glow)))
+    specular.addColorStop(1, rgba(hot, 0))
     context.fillStyle = specular
     context.beginPath()
     context.arc(sx, sy, spec, 0, TAU)
@@ -219,32 +243,6 @@ export function createOrb(canvas, options = {}) {
     context.restore()
 
     drawEngagement(cx, cy, radius, core, dt)
-    drawMute(cx, cy, radius, dt)
-  }
-
-  // Muted. Cut out of everything already drawn rather than painted over it, so
-  // the mark reads the same on the main window's background and on whatever
-  // arbitrary desktop the orb is floating above. A slash through a light is the
-  // one "off" symbol nobody has to learn.
-  function drawMute(cx, cy, radius, dt) {
-    mute = approach(mute, muted ? 1 : 0, 0.16, dt)
-    if (mute < 0.01) return
-
-    const reach = radius * 1.5 * mute
-    const angle = -Math.PI / 4
-    const dx = Math.cos(angle) * reach
-    const dy = Math.sin(angle) * reach
-
-    context.save()
-    context.globalCompositeOperation = 'destination-out'
-    context.lineCap = 'round'
-    context.lineWidth = Math.max(2.5, radius * 0.17)
-    context.strokeStyle = rgba([0, 0, 0], mute)
-    context.beginPath()
-    context.moveTo(cx - dx, cy - dy)
-    context.lineTo(cx + dx, cy + dy)
-    context.stroke()
-    context.restore()
   }
 
   // Hearing: rings travelling *inward*, as though the orb were drawing your voice
@@ -426,6 +424,15 @@ export function createOrb(canvas, options = {}) {
       setTimeout(() => {
         tintTarget = 0
       }, 260)
+    },
+
+    /**
+     * How much of the room to take up, 0..1. Everything the orb draws is derived
+     * from one radius, so this is one multiplication and the bloom, the rings and
+     * the ripples all step back with her.
+     */
+    setFocus(amount) {
+      focus = Math.max(0, Math.min(1, amount))
     },
 
     /** Mic level, 0..1. Drives both the swell and how hard the ripples read. */

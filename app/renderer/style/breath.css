@@ -1,12 +1,40 @@
 /* The main window. */
 
+/* Registered so it can be transitioned. An unregistered custom property is a
+ * string as far as the engine is concerned, and the sky would snap to its new
+ * reach while the band under it was still easing. */
+@property --sky {
+  syntax: '<length-percentage>';
+  initial-value: 70%;
+  inherits: false;
+}
+
+/* The sky: a wash of light at the top of the window, under the orb. It has to
+ * terminate inside the presence band, because the Mind view's brain is an opaque
+ * WebGL canvas that clears to flat --ink — anywhere the page is lighter than
+ * --ink behind it, that canvas is a rectangle with four hard edges. So the reach
+ * is a length rather than a percentage, and it follows the band. */
 .stage {
+  --sky: 70%;
+
   display: flex;
   flex-direction: column;
   height: 100%;
   background:
-    radial-gradient(120% 70% at 50% 0%, var(--ink-lift) 0%, rgba(33, 36, 45, 0) 62%),
+    radial-gradient(120% var(--sky) at 50% 0%, var(--ink-lift) 0%, rgba(45, 48, 58, 0) 62%),
     var(--ink);
+  transition: --sky 1100ms var(--ease-out);
+}
+
+/* Once Wren is ready the sky is measured off the band rather than the window, so
+ * it always ends above the surface. On the Mind view the top-lighting job falls
+ * to the orb's own bloom, which is what it is for. */
+.stage[data-phase='ready'][data-view='talk'] {
+  --sky: 330px;
+}
+
+.stage[data-phase='ready'][data-view='mind'] {
+  --sky: 170px;
 }
 
 /* ── Chrome ──────────────────────────────────────────────────────────────────
@@ -126,18 +154,42 @@
     min-height 1100ms var(--ease-out);
 }
 
-/* Tall enough to clear the ring. The orb draws its attention ring at 1.62x its
- * own radius, and at 208px that ring ran straight through the state word. */
-.stage[data-phase='ready'] .presence {
-  height: 244px;
-  min-height: 244px;
+/* The band is the orb's size: the canvas fills it, and `baseRadius()` is a ratio
+ * of the smaller canvas dimension. So which page you are on changes how much of
+ * the room Wren takes up, and nothing has to be resized in two places.
+ *
+ * Tall enough to clear the ring — the orb draws its attention ring at 1.62x its
+ * own radius, and at 208px that ring ran straight through the state word.
+ *
+ * The 1100ms carries the view switch as well as the boot settle. --ease-out is
+ * ~93% done by 330ms, so it reads faster than the 380ms tab crossfade and then
+ * settles, rather than lagging behind the content it sits above. */
+.stage[data-phase='ready'][data-view='talk'] .presence {
+  height: 300px;
+  min-height: 300px;
 }
 
+/* The Mind page is about the brain. Wren steps back to a small light above it —
+ * still breathing, still the same object, just not the thing you came here to
+ * look at. She grows again when there is something to see; see `refocus` in
+ * main.js. */
+.stage[data-phase='ready'][data-view='mind'] .presence {
+  height: 140px;
+  min-height: 140px;
+}
+
+/* The height is written out rather than left to the two insets. A canvas is a
+ * replaced element: with `height: auto` the intrinsic ratio wins, `bottom` is
+ * dropped, and the box settles at a fixed 1000x500 whatever the band underneath
+ * it is doing — which silently unhooks the orb's size from the band, since
+ * `baseRadius()` is a ratio of the smaller canvas dimension. So: one length,
+ * measured off the band, and the orb follows the page it is on. */
 .presence canvas {
   position: absolute;
-  inset: -48px 0 -72px;
+  top: -48px;
+  left: 0;
   width: 100%;
-  height: auto;
+  height: calc(100% + 120px);
   pointer-events: none;
 }
 
@@ -148,12 +200,21 @@
   color: var(--heard);
   transition:
     opacity 320ms var(--ease),
-    transform 320ms var(--ease);
+    transform 320ms var(--ease),
+    bottom 1100ms var(--ease-out);
 }
 
 .stage[data-phase='ready'] .state {
   bottom: 14px;
   color: var(--faint);
+}
+
+/* Below the band rather than inside it. The word is anchored to the orb, and on
+ * a band this short the attention ring — 1.62x the radius — comes down through
+ * the text. There is nothing under the band here but the gap above the brain, so
+ * the word drops into it. */
+.stage[data-phase='ready'][data-view='mind'] .state {
+  bottom: -34px;
 }
 
 .state.is-fading {
@@ -577,10 +638,13 @@
   gap: 14px;
 }
 
+/* Taller than it was by exactly what the orb gave back when it stepped aside.
+ * Still wider than it is tall, which is the assumption the frame assertion in
+ * fixtures.test.js rests on. */
 .brain-stage {
   position: relative;
   width: 100%;
-  height: 380px;
+  height: 470px;
   /* The canvas is the one place in the app where dragging is the point. */
   cursor: grab;
   touch-action: none;
