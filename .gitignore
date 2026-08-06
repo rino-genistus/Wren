@@ -18,3 +18,4 @@ app/renderer/js/brain.js.map
 # Sweep output — tens of MB of WAV, and `python3 sweep.py` regenerates all of it.
 # The eight samples/*.wav stay tracked as the set to listen to at a glance.
 samples/sweep-*/
+/.env
