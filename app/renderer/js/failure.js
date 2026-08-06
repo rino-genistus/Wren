@@ -67,8 +67,6 @@ export function failurePanel({ what, means, detail, action }) {
     panel.append(button)
   }
 
-  // Called when the thing that failed starts working again.
-  panel.clear = () => panel.remove()
   return panel
 }
 

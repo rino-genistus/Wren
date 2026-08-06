@@ -34,13 +34,20 @@ Wren). Lighting, hover, and the honesty treatment all persist in both states.
 
 Two layers, splitting "looks like a brain" from "lightable per region":
 
-- **Outer shell:** one detailed brain-silhouette mesh (glTF at `assets/brain-shell.glb`;
-  scaffold a low-poly fallback + TODO so it renders before the real mesh lands). Its only
-  job is the recognizable silhouette. Rendered translucent, tinted `--cool`. It is
-  **non-interactive** — `raycast={() => null}` so hover/click pass through to the interior
-  regions. It never lights and shows no popup. It fades to near-invisible while exploded.
-  Source options: NIH 3D (3d.nih.gov, many CC0), Sketchfab (CC filter), or Z-Anatomy
-  cortex. Decimate once in Blender to keep it light.
+- **Outer shell:** one brain-silhouette mesh. Its only job is the recognizable
+  silhouette. Rendered translucent, tinted `--cool`. It is **non-interactive** —
+  `raycast={() => null}` so hover/click pass through to the interior regions. It never
+  lights and shows no popup. It fades to near-invisible while exploded.
+
+  **Built, and not from a glTF.** The plan was to source a mesh (NIH 3D, Sketchfab,
+  Z-Anatomy) and decimate it in Blender. What shipped instead is procedural: a sphere
+  pushed into shape by `surfaceAt` in `scene.jsx` — tapered frontal pole, flattened
+  underside, lateral and longitudinal fissures, and a ridged-noise fold field for the
+  gyri, seeded so Wren has the same brain every launch. It is legible as anatomy, it
+  costs one pass over the vertices at mount, and it needs no asset pipeline or licence
+  audit. A glTF is still the eventual upgrade — the TODO at the head of `atlas.js` is
+  the live one, and names `app/renderer/brain/brain.glb` as the path and the CSP
+  directive it would need.
 - **Interior regions:** the lightable/hoverable/dashed meshes, positioned inside the
   shell at anatomically-plausible spots (thalamus & hippocampus deep/central, auditory
   & superior temporal lateral, prefrontal forward, cerebellum low-back, brainstem
@@ -62,8 +69,15 @@ Two-level click drill (resolves the conflict with the existing click-to-panel be
 - Click a region **while ASSEMBLED** -> animate to EXPLODED and pin that region's popup.
 - Click a region **while EXPLODED** -> scroll to + flash its Mind panel (the original
   click-to-panel behavior, moved one level down; exactly one panel lit).
-- Click empty space or press **Escape while EXPLODED** -> animate back to ASSEMBLED;
-  shell fades back in.
+- Click empty space -> animate back to ASSEMBLED; shell fades back in.
+
+**Escape is not a way out, and that is decided.** This section originally gave
+Escape the collapse, which was wrong: Escape already stops Wren speaking, and that
+is the most-used control in a voice interface. A key that stops a reply on one tab
+and rearranges a drawing on another is a key you cannot trust in either place. So
+clicking past every region is the only way back to ASSEMBLED — `onPointerMissed` on
+the canvas, which is where a click-past belongs anyway. See the comment on
+`onPointerMissed` in `scene.jsx`.
 
 Explode vectors: default to each region's centroid direction from brain center, scaled
 by `EXPLODE_DISTANCE` (named constant). Allow a per-region override in the atlas for deep
@@ -109,18 +123,25 @@ Store as data in the atlas (mirror the `brain-atlas.js` "copy as data" pattern).
   on prefrontal (a bad turn), not permanently on brainstem (process death arrives
   separately, via `python.js` exit).
 
-## Later — glass finish (do NOT do until motion is nailed)
+## The glass finish — half done
 
-The target look is luminous glass with the glow coming from *inside* — not the current
-flat grey dome. Deferred on purpose: `transmission` and bloom both cost performance, and
-layering them onto an animation still being tuned makes it hard to tell what's slow.
-Nail the exploded-view motion first, then do a finish pass:
+The target look is luminous glass with the glow coming from *inside*. Both halves were
+deferred until the motion was nailed, because `transmission` and bloom each cost
+performance and layering them onto an animation still being tuned makes it hard to tell
+what is slow. The motion is nailed, and one half has landed:
 
-- Shell uses `MeshPhysicalMaterial` with `transmission` (real glass refraction), low
-  roughness, thin-walled — so lit interior regions refract and glow *through* the cortex.
-- A restrained bloom post-process pass so activity glow blooms softly rather than just
-  tinting. Keep it subtle — this is an instrument, not neon.
-- Re-check perf after: transmission + bloom on an animated scene is the expensive combo.
+- **Bloom — done.** One `EffectComposer` pass in `scene.jsx`, `luminanceThreshold` set
+  above the room *and* above an idle region, so blooming is something activity does
+  rather than a haze over everything. It costs a full-screen pass, but only while the
+  Mind view is on screen: the render loop is stopped everywhere else. Two things it
+  forced, both worth knowing before touching it — the canvas is `alpha: false` and
+  clears to `--ink` (bloom over a transparent canvas is a black rectangle), and the
+  page behind it has to stay flat `--ink` for that opaque rectangle to be invisible,
+  which is why `--sky` in `breath.css` ends its wash inside the presence band.
+- **Transmission — still to do.** Shell would use `MeshPhysicalMaterial` with
+  `transmission`, low roughness, thin-walled, so lit interior regions refract and glow
+  *through* the cortex. Re-check perf after: transmission on top of the bloom pass is
+  the expensive combination, and the folded shell is the densest mesh in the scene.
 
 ## Out of scope (do not build)
 

@@ -17,7 +17,6 @@ import { createPresence } from './presence.js'
 
 const perch = document.getElementById('perch')
 const slot = document.getElementById('slot')
-const bubble = document.getElementById('bubble')
 const bubbleText = document.getElementById('bubble-text')
 
 perch.dataset.edge = window.wren.edge

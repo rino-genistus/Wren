@@ -37,4 +37,4 @@ function set(key, value) {
   }
 }
 
-module.exports = { get, set, file }
+module.exports = { get, set }

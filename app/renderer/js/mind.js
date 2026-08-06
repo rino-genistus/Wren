@@ -41,7 +41,6 @@ const LEVERS = [
 
 const EMPTY = [
   {
-    key: 'longterm',
     title: 'Long-term memory',
     note: 'nothing behind this yet',
     what: 'Facts Wren has kept: what was learned, when it formed, how often it has been recalled, and — live, as a turn happens — which of them were put in front of the model.',
@@ -49,7 +48,6 @@ const EMPTY = [
       'Whatever fills this has to write on the responder thread after a reply finishes, where it costs no conversational latency, and read against a hard token budget: every injected token is ~1.33ms of prefill on the 3B.',
   },
   {
-    key: 'feelings',
     title: 'Thoughts, opinions, feelings',
     note: 'nothing behind this yet',
     what: 'A timeline of stances tied to the turns that formed them, and a mood — warmth and energy — drifting across a session. The orb already takes a mood input; it is pinned neutral, so a signal here would colour Wren’s presence on the desktop with no further work.',
@@ -75,12 +73,8 @@ export function createMind(root) {
     return node
   }
 
-  // `key` is what a brain region clicks through to. It is on the element rather
-  // than in a lookup here so the brain can find a panel without either module
-  // importing the other.
-  function panel(key, title, note) {
+  function panel(title, note) {
     const section = element('section', 'panel')
-    section.dataset.panel = key
     const head = element('div', 'panel-head')
     head.append(element('h2', 'label', title))
     if (note) head.append(element('span', 'note', note))
@@ -89,20 +83,20 @@ export function createMind(root) {
   }
 
   // ── Personality ─────────────────────────────────────────────────────────────
-  const personality = panel('personality', 'Personality', 'read-only — editing needs a mutable prompt upstream')
+  const personality = panel('Personality', 'read-only — editing needs a mutable prompt upstream')
   const prompt = element('p', 'prompt', 'Waiting for Wren.')
   const levers = element('div', 'levers')
   personality.append(prompt, levers)
 
   // ── Working memory ──────────────────────────────────────────────────────────
-  const working = panel('working', 'Working memory', 'the deque actually in front of the model')
+  const working = panel('Working memory', 'the deque actually in front of the model')
   const messages = element('div', 'messages')
   working.append(messages)
 
   root.append(personality, working)
 
   for (const entry of EMPTY) {
-    const section = panel(entry.key, entry.title, entry.note)
+    const section = panel(entry.title, entry.note)
     const empty = element('div', 'empty')
     empty.append(element('p', 'what', entry.what))
     empty.append(element('p', 'constraint', entry.constraint))
@@ -119,25 +113,7 @@ export function createMind(root) {
 
   emptyMemory()
 
-  let lit = null
-  let unlight = null
-
   return {
-    // Called when a brain region is clicked. Scroll first, light second — the
-    // flash is only useful once the panel is actually on screen.
-    focus(key) {
-      const section = root.querySelector(`.panel[data-panel='${key}']`)
-      if (!section) return
-      clearTimeout(unlight)
-      if (lit && lit !== section) lit.dataset.lit = 'false'
-      lit = section
-      section.scrollIntoView({ behavior: 'smooth', block: 'start' })
-      section.dataset.lit = 'true'
-      unlight = setTimeout(() => {
-        section.dataset.lit = 'false'
-      }, 1200)
-    },
-
     personality(record) {
       prompt.textContent = record.prompt
       levers.innerHTML = ''

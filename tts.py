@@ -136,23 +136,32 @@ INTRA_OP_THREADS = 6
 # the room ringing out doesn't get segmented as a new utterance.
 TAIL_GUARD = 0.25
 
-# People make a noise while they're forming a thought, and it's what stops a
-# pause from reading as "did it hear me?". Wren waits this long for the real
-# reply; only if it hasn't arrived does it fill the gap.
+# Seconds to wait for the real reply before covering the gap with a thinking
+# noise. **None disables the filler**, which is where this has landed — FILLERS,
+# _next_filler and the on_filler callback are all dormant until it is a number
+# again.
 #
-# Tuning this is a straight trade. The first real chunk is ready at ~650-830ms
-# depending on how much history is in front of the model, so 0.7 catches the
-# slower half and leaves quick turns clean. Drop it to 0.35 and the filler fires
-# on essentially every turn: perceived latency becomes a flat ~750ms instead of
-# ~1100ms, at the cost of Wren always making a noise first. Set None to disable.
-# Speakers produce filled pauses roughly six times per 100 words. Wren's replies
-# run ~25 words, so the natural rate is about one turn in four — not every turn,
-# which is what a 0.7s deadline gave once the 3B slowed the first chunk down.
-# Set this above the usual first-chunk time so it fires only when genuinely late.
-# Off. A filler that fires only on the slow turns is, from the listening end,
-# a noise that arrives at unpredictable moments — it reads as Wren hesitating at
-# random rather than thinking. Silence before an answer is easier to listen to
-# than an "Hmm." you cannot predict. Set to a number of seconds to re-enable.
+# Off, and not because it failed. It did what it was meant to: people make a
+# noise while forming a thought, and it genuinely stops a pause from reading as
+# "did it hear me?". What sank it is *when* it fired. A filler that only covers
+# the slow turns is, from the listening end, a noise arriving at unpredictable
+# moments — it reads as Wren hesitating at random rather than thinking. Silence
+# before an answer turns out to be easier to listen to than an "Hmm." you cannot
+# predict.
+#
+# The measurements, for whoever re-enables it. The first real chunk lands at
+# ~650-830ms depending on how much history is in front of the model, so the
+# deadline decides how often this fires rather than whether it helps:
+#
+#   0.7   fires on the slower half — the setting that produced the problem above,
+#         and it crept toward firing on every turn once the 3B slowed the first
+#         chunk down
+#   0.35  fires on essentially every turn: perceived latency becomes a flat
+#         ~750ms instead of ~1100ms, at the cost of Wren always making a noise
+#
+# Speakers produce filled pauses about six times per 100 words, and Wren's replies
+# run ~25 words, so the natural rate is roughly one turn in four. Neither number
+# above lands there, which is the real reason this is parked rather than tuned.
 FILLER_AFTER = None
 
 # Deliberately non-committal: these have to sit in front of an answer to a
@@ -386,7 +395,7 @@ def _next_filler():
     return FILLERS[_last_filler], _filler_audio[_last_filler]
 
 
-def speak(chunks, on_chunk=None, on_filler=None):
+def speak(chunks, on_filler=None):
     """Synthesise and play an iterable of text chunks.
 
     A reply becomes one clip per sentence, plus at most one extra cut inside the
@@ -410,7 +419,7 @@ def speak(chunks, on_chunk=None, on_filler=None):
     synth_seconds = 0.0
     clips = 0
 
-    def emit(text, payload, is_phonemes, pause):
+    def emit(payload, is_phonemes, pause):
         nonlocal synth_seconds, clips
         mark = time.monotonic()
         samples = _synth(payload, is_phonemes)
@@ -418,7 +427,7 @@ def speak(chunks, on_chunk=None, on_filler=None):
         clips += 1
         while not _interrupt.is_set():
             try:
-                ready.put((text, samples, pause), timeout=0.2)
+                ready.put((samples, pause), timeout=0.2)
                 return
             except queue.Full:
                 continue
@@ -440,7 +449,7 @@ def speak(chunks, on_chunk=None, on_filler=None):
                 for payload, is_phonemes, pause in _clips(chunk, first=index == 0):
                     if _interrupt.is_set():
                         return
-                    emit(chunk, payload, is_phonemes, pause)
+                    emit(payload, is_phonemes, pause)
         finally:
             ready.put(None)
 
@@ -449,7 +458,6 @@ def speak(chunks, on_chunk=None, on_filler=None):
 
     playback_started = None
     filled = None
-    shown = None
     slack = None  # Worst margin between a clip being needed and being ready
     joiner = _Joiner(_get_stream())
     try:
@@ -473,7 +481,7 @@ def speak(chunks, on_chunk=None, on_filler=None):
                 item = ready.get()
             if item is None:
                 break
-            chunk, samples, pause = item
+            samples, pause = item
             if playback_started is None:
                 # Close the mic before the first sample reaches the speakers.
                 speaking = True
@@ -486,9 +494,6 @@ def speak(chunks, on_chunk=None, on_filler=None):
                 spare = (playback_started + joiner.written / SAMPLE_RATE
                          - time.monotonic())
                 slack = spare if slack is None else min(slack, spare)
-            if on_chunk and chunk != shown:
-                shown = chunk
-                on_chunk(chunk)
             joiner.write(samples, pause)
         joiner.flush()
     finally:

@@ -139,4 +139,4 @@ class PythonSource extends EventEmitter {
   }
 }
 
-module.exports = { PythonSource, findPython }
+module.exports = { PythonSource }

@@ -284,7 +284,9 @@ def reply(text):
 
     buffer = ""
     spoken = []
-    sentences = 0
+    # Not `sentences`: that is the module-level function this same file exports,
+    # and shadowing it here would make the name mean two things one scope apart.
+    sentences_spoken = 0
     clause_ready = None  # When the opening sentence first offered a fallback break
 
     def affordable(chunk):
@@ -328,8 +330,8 @@ def reply(text):
                 if not affordable_chunk:
                     return
                 if chunk.endswith((".", "!", "?", "…")):
-                    sentences += 1
-            if sentences >= MAX_SENTENCES:
+                    sentences_spoken += 1
+            if sentences_spoken >= MAX_SENTENCES:
                 # Enough said. Abandoning the stream here is free — the tokens we
                 # would have generated are ones Wren was never going to speak.
                 return

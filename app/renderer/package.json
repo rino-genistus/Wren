@@ -1,4 +1,0 @@
-{
-  "//": "The renderer is ES modules — index.html loads js/main.js with type=module. This marker only exists so Node agrees, which is what lets the brain's reducer be replayed against the fixtures outside Electron. The main process, one directory up, stays CommonJS.",
-  "type": "module"
-}

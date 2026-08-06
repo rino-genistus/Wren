@@ -70,4 +70,4 @@ function show() {
   win.focus()
 }
 
-module.exports = { create, get: () => win, onQuitting, show }
+module.exports = { create, onQuitting, show }

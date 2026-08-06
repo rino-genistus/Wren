@@ -7,8 +7,6 @@
 const mac = process.platform === 'darwin'
 
 module.exports = {
-  mac,
-
   // The main window's titlebar. Breath has no chrome of its own, so on macOS we
   // keep the traffic lights and float them over the background; elsewhere we
   // drop the frame entirely.

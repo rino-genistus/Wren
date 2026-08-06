@@ -188,13 +188,4 @@ function popupMenu(onCommand, onOpenMain, onQuit) {
   ]).popup({ window: win })
 }
 
-module.exports = {
-  create,
-  get: () => win,
-  setPassthrough,
-  beginDrag,
-  endDrag,
-  popupMenu,
-  WIDTH,
-  HEIGHT,
-}
+module.exports = { create, setPassthrough, beginDrag, endDrag, popupMenu }

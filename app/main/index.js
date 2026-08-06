@@ -35,7 +35,6 @@ function start() {
 
   source = createSource(process.argv, appRoot)
   source.on('event', publish)
-  source.on('end', () => broadcast('wren:replay-end'))
   source.start()
 }
 

@@ -12,7 +12,12 @@ final text. The reference has no joins by construction, so the difference betwee
 the two is exactly the cost of Wren's clipping, and the reference is the ceiling
 this pipeline can reach without changing voice or model.
 
-    python3 sweep.py [--dir samples/sweep-01] [--quick]
+    python3 sweep.py [--dir samples/sweep-01] [--quick] [--reanalyse]
+
+`--quick` skips the voice and speed A/B renders. `--reanalyse` recomputes the
+metrics over audio already in `--dir` without re-synthesising anything, which is
+what keeps a correction to a measurement from looking like a change in the
+result — the model answers differently every run.
 
 Playback is stubbed. Rendering twenty replies at realtime would take four minutes
 of silence and tell us nothing that the samples don't.

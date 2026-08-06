@@ -612,9 +612,25 @@ def announce():
 
 
 # ── Commands ──────────────────────────────────────────────────────────────────
-# Anything the UI asks for. Mute is a flag the mic loop reads; the rest happen
-# here and now, on the reader thread, because a barge-in that waits for the next
-# 80ms block to be processed is a barge-in you can hear being late.
+# Anything the UI asks for. Mute is a flag the mic loop reads; stop and reset
+# happen here and now, on the reader thread, because a barge-in that waits for
+# the next 80ms block to be processed is a barge-in you can hear being late.
+#
+# Retrying a stage is the exception, and it is a thread question rather than a
+# latency one. See `retries`.
+
+# Stage retries, queued for the main thread to run. Not run on the reader thread:
+# MLX binds a model to whichever thread loaded it and refuses to run it from any
+# other, and two of the six loaders are on the wrong side of that. `asr` loads
+# the model the mic loop transcribes with, and `warm` runs a generate through it
+# — so loading either here would strand the weights where transcribe() cannot
+# reach them. It is the same trap `_load_brain` already sidesteps by warming
+# through the responder, which is the thread that generates.
+#
+# The main thread drains this between blocks. That means a retry blocks the mic
+# loop for as long as the stage takes, which is fine: blocks queue up rather than
+# being lost, and a subsystem that isn't up is not one Wren can use anyway.
+retries = queue.Queue()
 
 
 def on_command(record):
@@ -627,13 +643,23 @@ def on_command(record):
     elif kind == "retry":
         stage = record.get("stage")
         if stage in LOADERS:
-            load(only=[stage])
-            # If that was the last thing standing between Wren and listening,
-            # the boot finishes now rather than on the next restart.
-            if not announced and listening_possible():
-                announce()
+            retries.put(stage)
         elif record.get("text"):
             handle(record["text"])
+
+
+def run_retries():
+    """Run whatever the reader thread has queued. Main thread only."""
+    while True:
+        try:
+            stage = retries.get_nowait()
+        except queue.Empty:
+            return
+        load(only=[stage])
+        # If that was the last thing standing between Wren and listening, the
+        # boot finishes now rather than on the next restart.
+        if not announced and listening_possible():
+            announce()
 
 # ── Running ───────────────────────────────────────────────────────────────────
 
@@ -667,6 +693,7 @@ def main():
         # asked to try again.
         print(paint("31", "\nWren can't listen — see the failures above."))
         while not listening_possible():
+            run_retries()
             time.sleep(0.2)
 
     announce()
@@ -684,6 +711,11 @@ def main():
                         blocksize=BLOCK_SIZE, dtype="int16"):
         while True:
             block = block_queue.get()
+
+            # Anything the UI asked to reload. Here rather than on the reader
+            # thread so a reloaded model belongs to the thread that uses it.
+            if not retries.empty():
+                run_retries()
 
             # Muted. The stream stays open — closing and reopening the device
             # costs the better part of a second and can hand back a different

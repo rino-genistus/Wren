@@ -10,10 +10,8 @@
 }
 
 /* The sky: a wash of light at the top of the window, under the orb. It has to
- * terminate inside the presence band, because the Mind view's brain is an opaque
- * WebGL canvas that clears to flat --ink — anywhere the page is lighter than
- * --ink behind it, that canvas is a rectangle with four hard edges. So the reach
- * is a length rather than a percentage, and it follows the band. */
+ * terminate inside the presence band rather than reach the whole window, so the
+ * reach is a length rather than a percentage, and it follows the band. */
 .stage {
   --sky: 70%;
 
@@ -169,10 +167,10 @@
   min-height: 300px;
 }
 
-/* The Mind page is about the brain. Wren steps back to a small light above it —
- * still breathing, still the same object, just not the thing you came here to
- * look at. She grows again when there is something to see; see `refocus` in
- * main.js. */
+/* The Mind page is about what's laid out below, not Wren. She steps back to a
+ * small light above it — still breathing, still the same object, just not the
+ * thing you came here to look at. She grows again when there is something to
+ * see; see `refocus` in main.js. */
 .stage[data-phase='ready'][data-view='mind'] .presence {
   height: 140px;
   min-height: 140px;
@@ -211,8 +209,8 @@
 
 /* Below the band rather than inside it. The word is anchored to the orb, and on
  * a band this short the attention ring — 1.62x the radius — comes down through
- * the text. There is nothing under the band here but the gap above the brain, so
- * the word drops into it. */
+ * the text. There is nothing under the band here but the gap above the Mind
+ * page's content, so the word drops into it. */
 .stage[data-phase='ready'][data-view='mind'] .state {
   bottom: -34px;
 }
@@ -619,96 +617,11 @@
   margin-left: 2px;
 }
 
-/* ── Brain ───────────────────────────────────────────────────────────────────
- * The head of the Mind view. Wren's interior in three dimensions, lit off the
- * event stream: regions that glow are wired to something real, dashed ones are
- * not and never light. That is the same thing dashed means on the .empty panels
- * below.
- *
- * Almost all of this surface is drawn in WebGL. The only DOM the scene owns is
- * the popup, which drei anchors to a point in the model — so it is styled here,
- * next to everything else, rather than inline in the scene. */
-
-.brain-figure {
-  margin: 0;
-  padding: 64px 40px 0 var(--rail);
-  max-width: 46rem;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-
-/* Taller than it was by exactly what the orb gave back when it stepped aside.
- * Still wider than it is tall, which is the assumption the frame assertion in
- * fixtures.test.js rests on. */
-.brain-stage {
-  position: relative;
-  width: 100%;
-  height: 470px;
-  /* The canvas is the one place in the app where dragging is the point. */
-  cursor: grab;
-  touch-action: none;
-}
-
-.brain-stage:active {
-  cursor: grabbing;
-}
-
-/* The popup. It sits above and to the right of its anchor so the region it names
- * is never underneath it, and it is never wide enough to cover the brain. */
-.brain-popup {
-  transform: translate(12px, calc(-100% - 6px));
-  width: 13.5rem;
-  padding: 9px 11px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  background: var(--ink-lift);
-  border: 1px solid var(--fainter);
-  border-radius: 4px;
-  box-shadow: 0 10px 30px rgb(0 0 0 / 45%);
-}
-
-/* Pinned by a click rather than followed by the cursor. A warm edge, the same
- * one the panel it points at is wearing at that moment. */
-.brain-popup[data-pinned='true'] {
-  border-color: var(--glow-deep);
-}
-
-.brain-popup .brain-what {
-  font-family: var(--sans);
-  font-size: 12.5px;
-  line-height: 1.55;
-  color: var(--faint);
-}
-
-/* Said in words as well as drawn, because by the time you have opened the popup
- * you are asking the question the dashes were answering. */
-.brain-popup .brain-unbuilt {
-  font-family: var(--sans);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--fainter);
-  border-top: 1px dashed var(--fainter);
-  border-bottom: 1px dashed var(--fainter);
-  padding: 4px 0;
-}
-
-.brain-legend {
-  font-family: var(--sans);
-  font-size: 11.5px;
-  line-height: 1.6;
-  color: var(--fainter);
-  margin: 0;
-  padding-bottom: 30px;
-  border-bottom: 1px solid var(--fainter);
-}
-
 /* ── Mind ────────────────────────────────────────────────────────────────────
  * Four panels. Two show something real; two are laid out and waiting. */
 
 .mind {
-  padding: 34px 40px 56px var(--rail);
+  padding: 64px 40px 56px var(--rail);
   max-width: 46rem;
   display: flex;
   flex-direction: column;
@@ -719,18 +632,6 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  scroll-margin-top: 24px;
-  border-left: 1px solid transparent;
-  padding-left: 0;
-  transition: border-color 900ms var(--ease), padding-left 420ms var(--ease-out);
-}
-
-/* Clicking a brain region lands here. A brief warm edge rather than a colour
- * change: you need to find the panel, not be told off by it. */
-.panel[data-lit='true'] {
-  border-left-color: var(--glow-deep);
-  padding-left: 14px;
-  transition: border-color 160ms var(--ease), padding-left 260ms var(--ease-out);
 }
 
 .panel-head {

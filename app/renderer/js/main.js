@@ -6,7 +6,6 @@ import { createPresence } from './presence.js'
 import { createTranscript } from './transcript.js'
 import { createTelemetry } from './telemetry.js'
 import { createMind } from './mind.js'
-import { createBrain } from './brain.js'
 import { createDev } from './dev.js'
 
 const stage = document.getElementById('stage')
@@ -31,9 +30,6 @@ const transcript = createTranscript(document.getElementById('transcript'), {
   retry: (text) => command('retry', { text }),
 })
 const mind = createMind(document.getElementById('mind'))
-const brain = createBrain(document.getElementById('brain'), {
-  onSelect: (panel) => mind.focus(panel),
-})
 
 const telemetry = createTelemetry({
   root: document.getElementById('telemetry'),
@@ -66,8 +62,8 @@ const presence = createPresence(orb, {
 //
 // How much of the room Wren takes. On the conversation she has it — she is the
 // thing you are talking to, and she holds her size while you read. On the Mind
-// page the brain is the subject, so she steps back to a small light above it and
-// only comes forward again when there is something to come forward for. Muted
+// page she steps back to a small light above it and only comes forward again
+// when there is something to come forward for. Muted
 // she recedes furthest: nothing is going to happen, and the orb should not sit
 // there at full size implying otherwise.
 //
@@ -94,17 +90,10 @@ for (const tab of document.querySelectorAll('.view-tab')) {
     }
     document.getElementById('view-talk').classList.toggle('is-shown', next === 'talk')
     document.getElementById('view-mind').classList.toggle('is-shown', next === 'mind')
-    // The brain's render loop only runs while you can see it. A second always-on
-    // loop competing with MLX buys nothing and costs latency.
-    brain.setVisible(next === 'mind')
     refocus()
   })
 }
 
-// The window opens on the conversation, so the brain starts stopped. Asking
-// rather than assuming means changing the default view in index.html does not
-// silently leave it frozen.
-brain.setVisible(stage.dataset.view === 'mind')
 refocus()
 
 // ── Controls ───────────────────────────────────────────────────────────────────
@@ -131,7 +120,6 @@ window.addEventListener('keydown', (event) => {
 
 function handle(record) {
   presence.handle(record)
-  brain.handle(record)
   stopButton.hidden = orb.state !== 'speaking'
   // Every record, because any of them can change the state or the mute flag that
   // this reads. It sets a number; the orb eases toward it on its own clock.

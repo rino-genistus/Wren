@@ -51,7 +51,6 @@
   --ease: cubic-bezier(0.4, 0, 0.2, 1);
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --cross: 380ms;
-  --breath: 4s;
 
   --rail: 56px; /* Left gutter the transcript hangs off */
 }
@@ -87,13 +86,6 @@ body {
   text-transform: uppercase;
   color: var(--faint);
   font-feature-settings: 'tnum';
-}
-
-.hairline {
-  height: 1px;
-  background: var(--fainter);
-  border: 0;
-  margin: 0;
 }
 
 ::-webkit-scrollbar {

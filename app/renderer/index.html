@@ -9,7 +9,9 @@
 <div class="stage" id="stage" data-phase="boot" data-view="talk">
   <!-- Stop is the most-used control in a voice interface and it used to live only
        in the desktop orb's context menu. Both of these are also on keys (Esc,
-       ⌘M); the labels are here so you can find out that they exist. -->
+       and ⌘⇧M — not ⌘M, which Electron's default macOS menu owns for Minimize
+       and takes before the renderer ever sees it); the labels are here so you
+       can find out that they exist. -->
   <header class="chrome">
     <div class="controls">
       <button class="label control" id="control-stop" hidden>Stop</button>
@@ -39,19 +41,7 @@
       <ol class="transcript" id="transcript"></ol>
     </section>
 
-    <!-- The brain heads the Mind view because the panels below are the detail
-         and this is the shape they hang off. A region that is dashed has
-         nothing behind it — that is the honest state of Wren's memory, and it
-         is drawn rather than described. -->
     <section class="view view-mind" id="view-mind">
-      <figure class="brain-figure" id="brain-figure">
-        <div class="brain-stage" id="brain"></div>
-        <figcaption class="brain-legend">
-          Drag to turn it, point at a region to read it. Click one to take the brain apart,
-          click it again to open its panel, click past it to put it back together.
-          Lit means wired to something real. Dashed means designed, with nothing behind it yet.
-        </figcaption>
-      </figure>
       <div class="mind" id="mind"></div>
     </section>
   </main>

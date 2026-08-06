@@ -18,9 +18,6 @@ contextBridge.exposeInMainWorld('wren', {
   onEvent: (handler) => {
     ipcRenderer.on('wren:event', (_event, record) => handler(record))
   },
-  onReplayEnd: (handler) => {
-    ipcRenderer.on('wren:replay-end', () => handler())
-  },
   onEdge: (handler) => {
     ipcRenderer.on('orb:edge', (_event, edge) => handler(edge))
   },

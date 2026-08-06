@@ -115,8 +115,5 @@ export function createTelemetry({ root, toggle, body, glance }) {
       paint()
       if (root.dataset.open === 'true') open(true)
     },
-    get facts() {
-      return facts
-    },
   }
 }

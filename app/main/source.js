@@ -4,9 +4,10 @@
 //
 // Everything upstream of the UI arrives through one object: an EventEmitter that
 // emits `event` with a parsed record, and accepts `send(command)` going back the
-// other way. Today the only implementation replays a fixture file. Later a
-// `python.js` sibling reads fd 3 of the real process and writes fd 4, behind this
-// same interface — nothing in the renderer knows or cares which is attached.
+// other way. Three implementations sit behind it: `python.js` reads fd 3 of the
+// real process and writes fd 4, `ReplaySource` reads a fixture file, and
+// `ManualSource` is driven by hand. Nothing in the renderer knows or cares which
+// is attached, which is what keeps every fixture a real regression test.
 
 const { EventEmitter } = require('node:events')
 const fs = require('node:fs')
@@ -75,9 +76,10 @@ class ReplaySource extends EventEmitter {
   }
 }
 
-// A source driven entirely by hand from the dev overlay. Same interface, no
-// schedule — used for tuning motion, where waiting out a replay for every tweak
-// is the whole problem.
+// A source with nothing upstream of it, for tuning motion — where waiting out a
+// replay for every tweak is the whole problem. The records come from the dev
+// overlay, which injects them into the journal directly rather than through here,
+// so this only has to be a source that never emits anything of its own.
 class ManualSource extends EventEmitter {
   start() {
     return this
@@ -86,9 +88,6 @@ class ManualSource extends EventEmitter {
     this.emit('command', command)
   }
   stop() {}
-  inject(record) {
-    this.emit('event', record)
-  }
 }
 
 function createSource(argv, appRoot) {
