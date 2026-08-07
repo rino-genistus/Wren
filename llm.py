@@ -36,7 +36,11 @@ HOST = "http://localhost:11434"
 KEEP_ALIVE = "1h"  # Ollama only: cold-loading costs ~17s, so keep it resident
 # 0.7 let the register wander — the model would drift into folksy American idiom
 # a few turns into a conversation. Lower keeps it consistent across a session.
+# Both are also the fallback when `reply` is called with no affect_engine —
+# sweep.py and warm() do this, and need the numbers to hold still so a benchmark
+# run stays comparable to the last one rather than moving with Wren's mood.
 TEMPERATURE = 0.4
+DEFAULT_TOP_P = 1.0
 # Every token in the prompt costs ~1.33ms of prefill on the 3B, and history runs
 # ~54 tokens a turn. Six turns was ~145ms of latency on every reply, spent
 # remembering exchanges a spoken conversation almost never refers back to.
@@ -147,13 +151,16 @@ def _get_mlx():
     return _mlx
 
 
-def _stream_mlx(messages):
+def _stream_mlx(messages, hyperparams):
     from mlx_lm import stream_generate
     from mlx_lm.sample_utils import make_logits_processors, make_sampler
     model, tokenizer = _get_mlx()
     prompt = tokenizer.apply_chat_template(messages, add_generation_prompt=True,
                                            tokenize=False)
-    sampler = make_sampler(temp=TEMPERATURE)
+    # mlx-lm's sampler has no presence-penalty knob — only the repetition
+    # penalty below — so hyperparams["presence_penalty"] has no effect on this
+    # backend. It's real on Ollama; see _stream_ollama.
+    sampler = make_sampler(temp=hyperparams["temperature"], top_p=hyperparams["top_p"])
     # A 1B model at 4-bit falls into loops once a few turns of history are in
     # front of it — "of course, of course, of course" — and a loop is far more
     # obvious spoken aloud than written down. Ollama applies a penalty by
@@ -166,13 +173,18 @@ def _stream_mlx(messages):
             yield response.text
 
 
-def _stream_ollama(messages):
+def _stream_ollama(messages, hyperparams):
     body = json.dumps({
         "model": OLLAMA_MODEL,
         "messages": messages,
         "stream": True,
         "keep_alive": KEEP_ALIVE,
-        "options": {"num_predict": MAX_TOKENS, "temperature": TEMPERATURE},
+        "options": {
+            "num_predict": MAX_TOKENS,
+            "temperature": hyperparams["temperature"],
+            "top_p": hyperparams["top_p"],
+            "presence_penalty": hyperparams["presence_penalty"],
+        },
     }).encode()
     request = urllib.request.Request(f"{HOST}/api/chat", data=body,
                                      headers={"Content-Type": "application/json"})
@@ -183,8 +195,9 @@ def _stream_ollama(messages):
                 yield token
 
 
-def _stream(messages):
-    return _stream_mlx(messages) if BACKEND == "mlx" else _stream_ollama(messages)
+def _stream(messages, hyperparams):
+    return (_stream_mlx(messages, hyperparams) if BACKEND == "mlx"
+            else _stream_ollama(messages, hyperparams))
 
 
 def available():
@@ -277,8 +290,19 @@ def sentences(text):
     return [part for part in parts if part]
 
 
-def reply(text):
-    """Yield speakable chunks of Wren's answer as they become available."""
+def reply(text, affect_engine=None):
+    """Yield speakable chunks of Wren's answer as they become available.
+
+    `affect_engine` is optional and taken by value, not imported — this module
+    stays a pure function of its inputs so sweep.py can benchmark it and warm()
+    can call it with no affect context at all. Pass an AffectEngine to let its
+    current mood set temperature/top_p/presence_penalty for this reply; leave it
+    out and generation uses the fixed TEMPERATURE/DEFAULT_TOP_P constants, same
+    as before affect existed.
+    """
+    hyperparams = (affect_engine.get_llm_hyperparameters() if affect_engine is not None
+                   else {"temperature": TEMPERATURE, "top_p": DEFAULT_TOP_P, "presence_penalty": 0.0})
+
     history.append({"role": "user", "content": text})
     messages = [{"role": "system", "content": SYSTEM_PROMPT}, *history]
 
@@ -313,7 +337,7 @@ def reply(text):
         return _closed(chunk, MAX_REPLY_CHARS - sum(map(len, spoken)))
 
     try:
-        for token in _stream(messages):
+        for token in _stream(messages, hyperparams):
             buffer += token
             if not spoken and clause_ready is None and _clause_at(buffer):
                 clause_ready = time.monotonic()
@@ -358,7 +382,8 @@ def warm():
     """Build the graph now so the first real turn doesn't pay for it."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": "hi"}]
-    for _ in _stream(messages):
+    hyperparams = {"temperature": TEMPERATURE, "top_p": DEFAULT_TOP_P, "presence_penalty": 0.0}
+    for _ in _stream(messages, hyperparams):
         break
 
 

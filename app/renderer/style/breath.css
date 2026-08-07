@@ -594,6 +594,12 @@
   padding: 4px 20px 22px;
 }
 
+/* Divides the drawer into named groups — currently just performance and
+   affect — without giving either its own drawer or its own toggle. */
+.telemetry-section {
+  padding: 10px 20px 0;
+}
+
 .metric {
   display: flex;
   flex-direction: column;

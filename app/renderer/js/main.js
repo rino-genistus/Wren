@@ -166,6 +166,10 @@ function handle(record) {
       telemetry.spoke(record)
       break
 
+    case 'affect':
+      telemetry.affect(record)
+      break
+
     case 'error':
       transcript.fail(record.message)
       break

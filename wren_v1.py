@@ -17,6 +17,7 @@ from parakeet_mlx.audio import get_logmel
 from openwakeword.model import Model as WakeWordModel
 from openwakeword.vad import VAD
 
+import affect
 import events
 import llm
 import speaker
@@ -65,6 +66,7 @@ MIN_GATE_WORDS = 3 # Idle-state utterances shorter than this are ignored
 DECISION_LOG = "decisions.jsonl"
 
 BLOCK_DURATION = BLOCK_SIZE / SAMPLE_RATE
+AFFECT_TICK_BLOCKS = round(1.0 / BLOCK_DURATION) # ~once a second, however long a block is
 complete_blocks = int(SILENCE_COMPLETE / BLOCK_DURATION)
 trailing_blocks = int(SILENCE_TRAILING / BLOCK_DURATION)
 unknown_blocks = int(SILENCE_UNKNOWN / BLOCK_DURATION)
@@ -365,6 +367,22 @@ def report(verdict, reason, score, text, elapsed_ms, speculated=False):
                 text=text, ms=round(elapsed_ms, 1), speculated=speculated)
 
 
+def report_affect():
+    """One line per turn: where affect landed, same shape as report()'s verdict line.
+
+    Printed only on turns — not on the once-a-second idle tick in main(), which
+    would otherwise scroll a mood reading past every quiet second and bury
+    everything else in the terminal. The idle tick still emits to the UI; it
+    just doesn't narrate itself here.
+    """
+    state = affect_engine.get_state_telemetry()
+    print(paint("35", f"    affect  V {state['valence']:+.2f}  A {state['arousal']:.2f}  ·  "
+                      f"fatigue {state['fatigue']:.2f}  curiosity {state['curiosity']:.2f}  "
+                      f"trust {state['social_trust']:.2f}  boredom {state['boredom']:.2f}  "
+                      f"security {state['existential_security']:.2f}  ·  {state['dominant_drive']}"))
+    events.emit("affect", **state)
+
+
 def narrate(chunks):
     """Pass chunks through to the synthesiser, printing whole sentences as they form.
 
@@ -401,7 +419,7 @@ def respond(text):
         # line below already records when one was used. The event is a different
         # matter — the UI shows the filler set apart from the reply, so it can
         # afford to know about it the moment it is spoken.
-        spoken = narrate(llm.reply(text))
+        spoken = narrate(llm.reply(text, affect_engine=affect_engine))
         stats = tts.speak(
             _collect(spoken, said),
             on_filler=lambda filler: events.emit("filler", text=filler),
@@ -409,6 +427,10 @@ def respond(text):
     except Exception as error:  # A bad reply shouldn't take the whole mic loop down
         print(paint("31", f"  ! response failed: {error}"))
         events.emit("error", message=f"{type(error).__name__}: {error}")
+        # A failed turn is exactly the signal existential_security exists to
+        # track — tick it down rather than leave affect blind to the failure.
+        affect_engine.tick(user_interacted=True, success_rate=0.0, error_rate=1.0)
+        report_affect()
         return
     finally:
         # Re-arm from the moment the turn passes back to you. Setting this when
@@ -429,6 +451,14 @@ def respond(text):
                 first_audio_ms=stats["first_audio_ms"], synth_ms=stats["synth_ms"],
                 audio_seconds=stats["audio_seconds"], filler=stats["filler"])
     events.emit("history", messages=list(llm.history))
+
+    # No token count comes back from either backend today, so approximate one
+    # from what was actually said — the usual ~4-chars-per-token rule of thumb —
+    # rather than plumb real counts through both streaming paths for this.
+    tokens = max(1, len(" ".join(said)) // 4)
+    affect_engine.tick(tokens_generated=tokens, user_interacted=True,
+                       success_rate=1.0, error_rate=0.0)
+    report_affect()
 
 
 def _collect(chunks, into):
@@ -467,6 +497,10 @@ voiceprint = None
 segmenter = None
 brain_ok = False
 brain_status = "not loaded"
+
+# Cheap pure-Python construction, unlike everything else on this page — no
+# _load_* stage needed, it's ready the moment the module is imported.
+affect_engine = affect.AffectEngine()
 
 pool = ThreadPoolExecutor(max_workers=1)
 responder = ThreadPoolExecutor(max_workers=1)
@@ -752,6 +786,15 @@ def main():
                 rms = float(numpy.sqrt(numpy.mean(
                     (block.astype(numpy.float32) / 32768.0) ** 2)))
                 events.emit("level", rms=round(min(1.0, rms * 6.0), 3))
+
+            # Advances boredom/decay even between turns, so a long silence shows
+            # up in affect rather than only updating when someone speaks. The
+            # tick itself always runs — state has to keep moving whether or not
+            # anyone's watching — only the emit is gated on a listener existing.
+            if blocks % AFFECT_TICK_BLOCKS == 0:
+                affect_engine.tick(user_interacted=False)
+                if events.attached():
+                    events.emit("affect", **affect_engine.get_state_telemetry())
 
             emitted = segmenter.push(block)
 

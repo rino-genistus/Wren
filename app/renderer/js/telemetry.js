@@ -2,7 +2,7 @@
 //
 // Wren already measures all of this and prints it to a terminal nobody is
 // looking at. None of it is invented here: every number below arrives on the
-// event stream exactly as tts.speak and report() produce it.
+// event stream exactly as tts.speak, report(), and report_affect() produce it.
 //
 // Folded away by default. The transcript is the window; this is for the days you
 // are tuning rather than talking.
@@ -18,28 +18,53 @@ const METRICS = [
   { key: 'speculated', label: 'Speculative', text: true },
 ]
 
+// Same seven fields affect.py's get_state_telemetry() returns, in the same
+// order — this reads the wire format, it doesn't reinvent it. `valence` is
+// signed because 0 is a real, meaningful middle, not an absence of data.
+const AFFECT_METRICS = [
+  { key: 'valence', label: 'Valence', round: 2, signed: true },
+  { key: 'arousal', label: 'Arousal', round: 2 },
+  { key: 'fatigue', label: 'Fatigue', round: 2 },
+  { key: 'curiosity', label: 'Curiosity', round: 2 },
+  { key: 'social_trust', label: 'Trust', round: 2 },
+  { key: 'boredom', label: 'Boredom', round: 2 },
+  { key: 'existential_security', label: 'Security', round: 2 },
+  { key: 'dominant_drive', label: 'Drive', text: true },
+]
+
 export function createTelemetry({ root, toggle, body, glance }) {
   const latest = {}
   let facts = null
 
-  const grid = document.createElement('div')
-  grid.className = 'telemetry-grid'
-  body.append(grid)
-
   const cells = new Map()
-  for (const metric of METRICS) {
-    const cell = document.createElement('div')
-    cell.className = 'metric'
-    const label = document.createElement('span')
-    label.className = 'label'
-    label.textContent = metric.label
-    const value = document.createElement('span')
-    value.className = 'value dim'
-    value.textContent = '—'
-    cell.append(label, value)
-    grid.append(cell)
-    cells.set(metric.key, value)
+
+  function buildGrid(metrics, { heading } = {}) {
+    if (heading) {
+      const label = document.createElement('div')
+      label.className = 'label telemetry-section'
+      label.textContent = heading
+      body.append(label)
+    }
+    const grid = document.createElement('div')
+    grid.className = 'telemetry-grid'
+    body.append(grid)
+    for (const metric of metrics) {
+      const cell = document.createElement('div')
+      cell.className = 'metric'
+      const label = document.createElement('span')
+      label.className = 'label'
+      label.textContent = metric.label
+      const value = document.createElement('span')
+      value.className = 'value dim'
+      value.textContent = '—'
+      cell.append(label, value)
+      grid.append(cell)
+      cells.set(metric.key, value)
+    }
   }
+
+  buildGrid(METRICS)
+  buildGrid(AFFECT_METRICS, { heading: 'Affect' })
 
   function render(metric, raw) {
     const cell = cells.get(metric.key)
@@ -67,6 +92,7 @@ export function createTelemetry({ root, toggle, body, glance }) {
 
   function paint() {
     for (const metric of METRICS) render(metric, latest[metric.key])
+    for (const metric of AFFECT_METRICS) render(metric, latest[metric.key])
 
     // The collapsed line is the three numbers worth glancing at: how fast Wren
     // answered, how sure it was you, and why it accepted.
@@ -80,7 +106,7 @@ export function createTelemetry({ root, toggle, body, glance }) {
 
   function open(next) {
     root.dataset.open = String(next)
-    body.style.height = next ? `${grid.scrollHeight}px` : '0px'
+    body.style.height = next ? `${body.scrollHeight}px` : '0px'
   }
 
   toggle.addEventListener('click', () => open(root.dataset.open !== 'true'))
@@ -114,6 +140,10 @@ export function createTelemetry({ root, toggle, body, glance }) {
       latest.filler = record.filler
       paint()
       if (root.dataset.open === 'true') open(true)
+    },
+    affect(record) {
+      for (const metric of AFFECT_METRICS) latest[metric.key] = record[metric.key]
+      paint()
     },
   }
 }
