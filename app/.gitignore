@@ -1,4 +1,0 @@
-node_modules/
-
-# Window placement, written to userData at runtime — nothing here is source.
-*.log
